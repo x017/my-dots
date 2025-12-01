@@ -1,0 +1,91 @@
+
+[
+  {
+    "context": "Editor && mode == insert",
+    "bindings": {
+      "ctrl-b": "editor::MoveToBeginningOfLine",
+      "ctrl-e": "editor::MoveToEndOfLine",
+      "ctrl-h": "editor::MoveLeft",
+      "ctrl-l": "editor::MoveRight",
+      "ctrl-j": "editor::MoveDown",
+      "ctrl-k": "editor::MoveUp"
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "ctrl-h": "workspace::ActivatePaneLeft",
+      "ctrl-l": "workspace::ActivatePaneRight",
+      "ctrl-j": "workspace::ActivatePaneDown",
+      "ctrl-k": "workspace::ActivatePaneUp"
+    }
+  },
+  {
+    "context": "Editor && mode == normal",
+    "bindings": {
+      "escape": "editor::Cancel",
+      "ctrl-s": "workspace::Save",
+      ";": "command_palette::Toggle"
+    }
+  },
+  {
+    "context": "Editor && mode == insert",
+    "bindings": {
+      "j k": "vim::NormalBefore"
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "ctrl-c": ["editor::SelectAll", "editor::Copy"]
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "tab": "pane::ActivateNextItem"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "ctrl-n": "workspace::ToggleLeftDock"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "space f": "file_finder::Toggle",
+      "ctrl-p": "file_finder::Toggle",
+      "space b": "tab_switcher::Toggle",
+      "space w": "pane::DeploySearch",
+      "ctrl-shift-f": "pane::DeploySearch",
+      "space /": "editor::ToggleComments"
+    }
+  },
+  {
+    "context": "Terminal",
+    "bindings": {
+      "ctrl-x": "workspace::ToggleBottomDock",
+      "escape": "workspace::ToggleBottomDock"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "alt-i": "terminal_panel::ToggleFocus"
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "space f m": "editor::Format"
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "space x": "pane::CloseActiveItem"
+    }
+  }
+]

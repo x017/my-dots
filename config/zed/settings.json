@@ -1,0 +1,30 @@
+
+{
+  "icon_theme": "Zed (Default)",
+  "vim_mode": true,
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Catppuccin Espresso (Blur)"
+  },
+  "lsp": {
+    "ruff": {
+      "enable": true,
+      "settings": {
+        "line-length": 120,
+        "select": ["E", "F", "I"],
+        "ignore": ["E501"]
+      }
+    }
+  },
+  "languages": {
+    "html": {
+      "format": false
+    },
+    "django-html": {
+      "format": false
+    }
+  }
+}
