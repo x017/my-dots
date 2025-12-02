@@ -5,113 +5,418 @@
 }
 
 window#waybar {
-  background-color: rgba(10, 10, 10, 0.9);
-  color: #cdd6f4;
-  border-bottom: 2px solid #89b4fa;
-  transition: background-color 0.3s;
+  background: linear-gradient(135deg, 
+    rgba(10, 10, 10, 0.85) 0%,
+    rgba(20, 20, 30, 0.75) 50%,
+    rgba(10, 10, 10, 0.85) 100%);
+  color: #bfccdb;
+  border: 1px solid rgba(119, 144, 175, 0.3);
+  border-radius: 18px;
+  box-shadow: 
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  margin: 4px 8px;
+  transition: all 300ms ease;
+}
+
+window#waybar:hover {
+  background: linear-gradient(135deg, 
+    rgba(15, 15, 15, 0.9) 0%,
+    rgba(25, 25, 35, 0.8) 50%,
+    rgba(15, 15, 15, 0.9) 100%);
+  border-color: rgba(119, 144, 175, 0.4);
+  box-shadow: 
+    0 6px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* Workspaces */
-
 #workspaces {
-  padding: 10 20px;
-  opacity: 1;
-  border-radius: 10px;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.08) 100%);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  margin: 2px;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.2);
 }
+
 #workspaces button {
-  padding: 0 12px;
-  color: #6c7086;
+  padding: 2px 10px;
+  margin: 0 1px;
+  color: #858e99;
   background: transparent;
-  transition: all 0.3s ease;
+  border-radius: 12px;
+  transition: all 250ms ease;
+  border: 1px solid transparent;
+}
+
+#workspaces button:hover {
+  color: #bfccdb;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.12) 100%);
+  border-color: rgba(119, 144, 175, 0.3);
+  box-shadow: 
+    0 2px 10px rgba(119, 144, 175, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 #workspaces button.focused {
-  color: #89b4fa;
-  border-bottom: 2px solid #89b4fa;
+  color: #7790AF;
+  background: linear-gradient(135deg, 
+    rgba(119, 144, 175, 0.25) 0%,
+    rgba(119, 144, 175, 0.15) 50%,
+    rgba(119, 144, 175, 0.25) 100%);
+  border-color: rgba(119, 144, 175, 0.4);
+  box-shadow: 
+    0 0 12px rgba(119, 144, 175, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 }
 
 #workspaces button.active {
-  color: #F2ffFF;
-  border: none;
-  background-color: rgba(30, 50, 80, 1);
-  border-radius: 50px;
-  border-bottom: 2px solid #89b4fa;
+  color: #bfccdb;
+  background: linear-gradient(135deg, 
+    rgba(119, 144, 175, 0.4) 0%,
+    rgba(119, 144, 175, 0.25) 50%,
+    rgba(119, 144, 175, 0.4) 100%);
+  border-color: rgba(119, 144, 175, 0.6);
+  box-shadow: 
+    0 0 15px rgba(119, 144, 175, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
 }
+
 #workspaces button.urgent {
-  color: #249999;
+  color: #9F6B64;
+  background: linear-gradient(135deg, 
+    rgba(159, 107, 100, 0.3) 0%,
+    rgba(159, 107, 100, 0.15) 50%,
+    rgba(159, 107, 100, 0.3) 100%);
+  border-color: rgba(159, 107, 100, 0.5);
+  box-shadow: 0 0 12px rgba(159, 107, 100, 0.4);
 }
-
-
 
 /* Modules */
-#clock, #battery, #network, #custom-updates, #pulseaudio, #pulseaudio-slider,#tray,#custom-nowplaying {
-  margin: 4px 5px;
-  padding: 5px 12px;
-  background: rgba(20, 20, 20, 0.8);
-  border-radius: 12px;
-  transition: background 0.3s;
+#clock,
+#battery,
+#network,
+#custom-updates,
+#pulseaudio,
+#tray,
+#custom-nowplaying {
+  margin: 2px 2px;
+  padding: 2px 12px;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.1) 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 250ms ease;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+#clock:hover,
+#battery:hover,
+#network:hover,
+#custom-updates:hover,
+#pulseaudio:hover,
+#tray:hover,
+#custom-nowplaying:hover {
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.15) 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 3px 12px rgba(0, 0, 0, 0.25);
 }
 
 #clock {
   font-weight: bold;
-  box-shadow: 0 0 5px rgba(137, 180, 250, 0.3);
+  background: linear-gradient(135deg, 
+    rgba(119, 144, 175, 0.2) 0%,
+    rgba(119, 144, 175, 0.1) 50%,
+    rgba(119, 144, 175, 0.2) 100%);
+  border-color: rgba(119, 144, 175, 0.4);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 10px rgba(119, 144, 175, 0.2);
 }
 
 #battery.warning {
-  background-color: rgba(243, 139, 168, 0.8);
-  color: #11111b;
-  animation: blink 1s infinite;
+  background: linear-gradient(135deg, 
+    rgba(249, 146, 34, 0.35) 0%,
+    rgba(249, 146, 34, 0.2) 50%,
+    rgba(249, 146, 34, 0.35) 100%);
+  color: #bfccdb;
+  border-color: rgba(249, 146, 34, 0.6);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 12px rgba(249, 146, 34, 0.3);
 }
 
 #battery.critical {
-  background-color: rgba(243, 139, 168, 0.8);
-  color: #11111b;
-  animation: blink 0.5s infinite;
-}
-
-@keyframes blink {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
+  background: linear-gradient(135deg, 
+    rgba(243, 139, 168, 0.4) 0%,
+    rgba(243, 139, 168, 0.25) 50%,
+    rgba(243, 139, 168, 0.4) 100%);
+  color: #bfccdb;
+  border-color: rgba(243, 139, 168, 0.7);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 15px rgba(243, 139, 168, 0.4);
 }
 
 #pulseaudio.muted {
   color: #f38ba8;
+  background: linear-gradient(135deg, 
+    rgba(243, 139, 168, 0.2) 0%,
+    rgba(243, 139, 168, 0.1) 50%,
+    rgba(243, 139, 168, 0.2) 100%);
+  border-color: rgba(243, 139, 168, 0.4);
 }
 
 #network.disconnected {
-  color: #f38ba8;
-}
-
-/* Slider */
-
-#pulseaudio-slider slider {
-  min-height: 0;
-  min-width: 0;
-  opacity: 0;
-}
-
-#pulseaudio-slider trough {
-  min-height: 8px;
-  min-width: 100px;
-  border-radius: 5px;
-  background-color: #11111b;
-}
-
-#pulseaudio-slider highlight {
-  min-width: 0;
-  border-radius: 5px;
-  background-color: #89b4fa;
-  transition: background-color 0.3s;
+  color: #f22444;
+  background: linear-gradient(135deg, 
+    rgba(242, 36, 68, 0.2) 0%,
+    rgba(242, 36, 68, 0.1) 50%,
+    rgba(242, 36, 68, 0.2) 100%);
+  border-color: rgba(242, 36, 68, 0.4);
 }
 
 /* Launcher */
 #custom-launcher {
-  font-size: 18px;
-  padding: 0 16px;
-  margin-left: 8px;
-  margin-bottom: 5px;
-  color: #89b4fa;
-  background: rgba(20, 20, 20, 0.8);
-  border-radius: 12px;
+  font-size: 14px;
+  padding: 2px 14px;
+  margin-left: 4px;
+  color: #7790AF;
+  background: linear-gradient(135deg, 
+    rgba(119, 144, 175, 0.25) 0%,
+    rgba(119, 144, 175, 0.15) 25%,
+    rgba(119, 144, 175, 0.1) 50%,
+    rgba(119, 144, 175, 0.15) 75%,
+    rgba(119, 144, 175, 0.25) 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(119, 144, 175, 0.4);
+  transition: all 300ms ease;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(119, 144, 175, 0.2);
 }
+
+#custom-launcher:hover {
+  background: linear-gradient(135deg, 
+    rgba(119, 144, 175, 0.35) 0%,
+    rgba(119, 144, 175, 0.25) 25%,
+    rgba(119, 144, 175, 0.2) 50%,
+    rgba(119, 144, 175, 0.25) 75%,
+    rgba(119, 144, 175, 0.35) 100%);
+  border-color: rgba(119, 144, 175, 0.6);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 4px 16px rgba(119, 144, 175, 0.3);
+}
+
+/* Tray */
+#tray {
+  padding: 2px 10px;
+}
+
+#tray > .passive {
+  -gtk-icon-effect: dim;
+}
+
+#tray > .needs-attention {
+  -gtk-icon-effect: highlight;
+}
+
+/* Tooltip */
+tooltip {
+  background: linear-gradient(135deg, 
+    rgba(10, 10, 10, 0.95) 0%,
+    rgba(20, 20, 30, 0.95) 100%);
+  border: 1px solid rgba(119, 144, 175, 0.4);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+tooltip label {
+  color: #bfccdb;
+  padding: 4px 8px;
+}
+/* Add #custom-lock to your existing modules list */
+#clock,
+#battery,
+#network,
+#custom-updates,
+#pulseaudio,
+#tray,
+#custom-nowplaying,
+#custom-lock {
+  margin: 2px 2px;
+  padding: 2px 12px;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.1) 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 250ms ease;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Add #custom-lock to hover states */
+#clock:hover,
+#battery:hover,
+#network:hover,
+#custom-updates:hover,
+#pulseaudio:hover,
+#tray:hover,
+#custom-nowplaying:hover,
+#custom-lock:hover {
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.15) 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 3px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Lock Button Specific Styling */
+#custom-lock {
+  color: #c4b5fd;
+  font-size: 13px;
+  padding: 2px 10px;
+  margin-right: 4px;
+  background: linear-gradient(135deg, 
+    rgba(139, 92, 246, 0.2) 0%,
+    rgba(124, 58, 237, 0.12) 50%,
+    rgba(139, 92, 246, 0.2) 100%);
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+#custom-lock:hover {
+  color: #ddd6fe;
+  background: linear-gradient(135deg, 
+    rgba(139, 92, 246, 0.35) 0%,
+    rgba(124, 58, 237, 0.25) 50%,
+    rgba(139, 92, 246, 0.35) 100%);
+  border-color: rgba(196, 181, 253, 0.5);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 0 14px rgba(139, 92, 246, 0.35);
+}
+
+/* ================================================================= */
+/*               DYNAMIC ISLAND (Add to bottom of file)              */
+/* ================================================================= */
+
+#custom-dynamic-island {
+    margin: 2px 4px;
+    padding: 2px 20px;
+    min-width: 80px;
+    background: linear-gradient(135deg, 
+        rgba(10, 10, 10, 0.95) 0%,
+        rgba(20, 20, 30, 0.85) 50%,
+        rgba(10, 10, 10, 0.95) 100%);
+    border-radius: 24px;
+    border: 1px solid rgba(119, 144, 175, 0.25);
+    color: #bfccdb;
+    font-size: 12px;
+    transition: min-width 300ms ease, padding 300ms ease, background-color 300ms ease;
+    box-shadow: 
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+        0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+#custom-dynamic-island.empty {
+    min-width: 40px;
+    padding: 2px 8px;
+    background: linear-gradient(135deg, 
+        rgba(10, 10, 10, 0.7) 0%,
+        rgba(20, 20, 30, 0.6) 50%,
+        rgba(10, 10, 10, 0.7) 100%);
+    border-color: rgba(119, 144, 175, 0.15);
+}
+
+#custom-dynamic-island.normal {
+    min-width: 200px;
+    padding: 4px 24px;
+    background: linear-gradient(135deg, 
+        rgba(119, 144, 175, 0.3) 0%,
+        rgba(119, 144, 175, 0.2) 50%,
+        rgba(119, 144, 175, 0.3) 100%);
+    border-color: rgba(119, 144, 175, 0.5);
+    box-shadow: 
+        0 0 20px rgba(119, 144, 175, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+#custom-dynamic-island.low {
+    min-width: 180px;
+    padding: 3px 20px;
+    background: linear-gradient(135deg, 
+        rgba(119, 144, 175, 0.2) 0%,
+        rgba(119, 144, 175, 0.1) 50%,
+        rgba(119, 144, 175, 0.2) 100%);
+    border-color: rgba(119, 144, 175, 0.3);
+    color: #858e99;
+}
+
+#custom-dynamic-island.critical {
+    min-width: 220px;
+    padding: 5px 26px;
+    background: linear-gradient(135deg, 
+        rgba(243, 139, 168, 0.4) 0%,
+        rgba(243, 139, 168, 0.3) 50%,
+        rgba(243, 139, 168, 0.4) 100%);
+    border-color: rgba(243, 139, 168, 0.7);
+    animation: critical-pulse 2s ease-in-out infinite;
+    box-shadow: 
+        0 0 24px rgba(243, 139, 168, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+#custom-dynamic-island:hover {
+    background: linear-gradient(135deg, 
+        rgba(119, 144, 175, 0.4) 0%,
+        rgba(119, 144, 175, 0.3) 50%,
+        rgba(119, 144, 175, 0.4) 100%);
+    box-shadow: 
+        0 0 25px rgba(119, 144, 175, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+

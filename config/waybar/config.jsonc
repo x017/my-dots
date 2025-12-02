@@ -1,102 +1,162 @@
 {
-  "layer": "top",
+ "layer": "top",
   "position": "top",
-  "height": 30,
-  "spacing": 4,
-  "modules-left": ["custom/nowplaying", "network", "pulseaudio", "pulseaudio/slider"],
-  "modules-center": ["hyprland/workspaces"],
-  "modules-right": ["clock", "battery", "custom/updates", "tray"],
+  "height": 36,
+  "spacing": 2,
+  "margin-top": 4,
+  "margin-left": 8,
+  "margin-right": 8,
 
-  "hyprland/workspaces": {
-    "format": "{name}",
-    "on-click": "activate",
-    "active-only": false,
-    "format-icons": {
-      "1": "󰈹",
-      "2": "󰉋",
-      "3": "󰈬",
-      "4": "󰇮",
-      "5": "󰎆",
-      "urgent": "",
-      "focused": "",
-      "default": ""
-    },
-    "persistent_workspaces": false
-  },
-  "taskbar": {
-    "format": "{icon}",
-    "icon-size": 16,
+  "modules-left": [
+    "hyprland/workspaces",
+    "hyprland/window"
+  ],
+
+  "modules-center": [
+    "custom/dynamic-island"
+  ],
+
+  "modules-right": [
+    "custom/notification",
+    "tray",
+    "custom/updates",
+    "pulseaudio",
+    "network",
+    "battery",
+    "clock",
+    "custom/lock"
+  ],
+
+  "custom/notification": {
     "tooltip": false,
-    "on-click": "activate",
-    "on-click-middle": "close"
+    "format": "{icon} {text}",
+    "format-icons": {
+      "notification": "󰂚",
+      "none": "󰂜",
+      "dnd-notification": "󰂛",
+      "dnd-none": "󰪑"
+    },
+    "return-type": "json",
+    "exec-if": "which dunstctl",
+    "exec": "~/.config/waybar/scripts/dunst-status.sh",
+    "on-click": "~/.config/waybar/scripts/dunst-center.sh",
+    "on-click-right": "dunstctl set-paused toggle",
+    "escape": true,
+    "interval": 1
   },
-  "clock": {
-    "format": " {:%H:%M}"
+
+  "custom/launcher": {
+    "format": "󰣇",
+    "tooltip": true,
+    "tooltip-format": "Application Launcher",
+    "on-click": "wofi --show drun",
+    "on-click-right": "wofi --show run"
   },
+
+
+  "tray": {
+    "icon-size": 16,
+    "spacing": 8,
+    "show-passive-items": true
+  },
+
+  "custom/updates": {
+    "format": "󰏗 {}",
+    "exec": "checkupdates 2>/dev/null | wc -l || echo 0",
+    "exec-if": "which checkupdates",
+    "interval": 3600,
+    "on-click": "kitty -e sudo pacman -Syu",
+    "tooltip": true,
+    "tooltip-format": "Available Updates"
+  },
+
   "pulseaudio": {
     "format": "{icon} {volume}%",
     "format-muted": "󰝟 Muted",
+    "format-bluetooth": "󰂯 {volume}%",
+    "format-bluetooth-muted": "󰂲 Muted",
     "format-icons": {
-      "default": ["", "", ""]
+      "headphone": "󰋋",
+      "hands-free": "󰋎",
+      "headset": "󰋎",
+      "phone": "",
+      "portable": "",
+      "car": "",
+      "default": ["󰕿", "󰖀", "󰕾"]
     },
-    "scroll-step": 5,
-    "on-click": "pactl set-sink-mute @DEFAULT_SINK@ toggle",
-    "tooltip": false
+    "on-click": "pavucontrol",
+    "on-click-right": "pactl set-sink-mute @DEFAULT_SINK@ toggle",
+    "on-scroll-up": "pactl set-sink-volume @DEFAULT_SINK@ +2%",
+    "on-scroll-down": "pactl set-sink-volume @DEFAULT_SINK@ -2%",
+    "tooltip": true,
+    "tooltip-format": "{icon} {desc}\nVolume: {volume}%"
   },
-  "pulseaudio/slider": {
-    "min": 0,
-    "max": 100,
-    "orientation": "horizontal"
-  },
+
   "network": {
-    "format-wifi": " {essid} ({signalStrength}%)",
-    "format-ethernet": "󰈁 {ipaddr}",
-    "format-disconnected": "󰖪 Offline",
-    "tooltip": false
+    "format-wifi": "󰤨 {signalStrength}%",
+    "format-ethernet": "󰈀 {ipaddr}",
+    "format-linked": "󰈀 No IP",
+    "format-disconnected": "󰤭 Offline",
+    "format-alt": "󰩟 {bandwidthDownBytes}  {bandwidthUpBytes}",
+    "interval": 5,
+    "on-click-right": "nm-connection-editor",
+    "tooltip": true,
+    "tooltip-format-wifi": "󰤨 {essid}\n   Signal: {signalStrength}%\n󰩟  {bandwidthDownBytes}  {bandwidthUpBytes}\n󰈀  {ipaddr}/{cidr}\n󱂇  {gwaddr}",
+    "tooltip-format-ethernet": "󰈀 {ifname}\n󰩟  {bandwidthDownBytes}  {bandwidthUpBytes}\n󰈀  {ipaddr}/{cidr}\n󱂇  {gwaddr}",
+    "tooltip-format-disconnected": "󰤭 Disconnected"
   },
+
   "battery": {
-    "format": "{icon} {capacity}%",
-    "format-icons": ["", "", "", "", ""],
-    "format-charging": "󰂄 {capacity}%",
-    "format-plugged": "󱘖 {capacity}%",
     "states": {
+      "full": 100,
+      "good": 80,
       "warning": 30,
       "critical": 15
+    },
+    "format": "{icon} {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰚥 {capacity}%",
+    "format-full": "󰁹 Full",
+    "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+    "on-click": "gnome-power-statistics",
+    "tooltip": true,
+    "tooltip-format": "󰁹 Battery: {capacity}%\n󱐋 Power: {power}W\n󰥔 Time: {time}\n󰔏 Health: {health}%"
+  },
+
+  "clock": {
+    "format": "󰥔 {:%H:%M}",
+    "format-alt": "󰃭 {:%A, %B %d, %Y}",
+    "tooltip": true,
+    "tooltip-format": "<big>󰃭 {:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
+    "calendar": {
+      "mode": "month",
+      "mode-mon-col": 3,
+      "weeks-pos": "right",
+      "on-scroll": 1,
+      "on-click-right": "mode",
+      "format": {
+        "months": "<span color='#bfccdb'><b>{}</b></span>",
+        "days": "<span color='#858e99'>{}</span>",
+        "weeks": "<span color='#7790AF'><b>W{}</b></span>",
+        "weekdays": "<span color='#7790AF'><b>{}</b></span>",
+        "today": "<span color='#7790AF'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-click-right": "mode",
+      "on-click-forward": "tz_up",
+      "on-click-backward": "tz_down",
+      "on-scroll-up": "shift_up",
+      "on-scroll-down": "shift_down"
     }
   },
-  "custom/updates": {
-    "exec": "checkupdates | wc -l",
-    "interval": 3600,
-    "format": "󰚰 {}",
-    "tooltip": false
-  },
-  "custom/launcher": {
-    "exec": "echo 󰣇",
-    "on-click": "rofi -show drun",
-    "tooltip": false
-  },
-  "custom/nowplaying": {
-    "exec": "~/.config/waybar/nowplaying.sh",
-    "interval": 5,
-    "format": "{}",
-    "tooltip": false
-  },
-  "custom/music_controls": {
-    "exec": "echo '▶ ⏸ ⏭ ⏮ ⏹'",
-    "click-left": "curl -s http://localhost:8000/control/playpause",
-    "click-right": "curl -s http://localhost:8000/control/stop",
-    "scroll-up": "curl -s http://localhost:8000/control/next",
-    "scroll-down": "curl -s http://localhost:8000/control/prev",
-    "format": "{}",
-    "interval": 0
-  },
-  "tray": {
-    "icon-size": 21,
-    "spacing": 10,
-    "icons": {
-      "blueman": "bluetooth",
-      "TelegramDesktop": "$HOME/.local/share/icons/hicolor/16x16/apps/telegram.png"
-    }
+
+  "custom/lock": {
+    "format": "󰌾",
+    "tooltip": true,
+    "tooltip-format": "Lock Session",
+    "on-click": "hyprlock",
+    "on-click-right": "systemctl suspend",
+    "on-click-middle": "hyprctl dispatch exit"
   }
 }
-
