@@ -1,422 +1,175 @@
+/* ==========================================================
+   Waybar — "Editor Dark" palette
+   bg #090b0d · fg #adbac7 · gold #f2d49e · blue #7fa8c9
+   red #b86a6a · info #64778d · borders #1e2025 / #2d3035
+   ========================================================== */
 * {
   font-family: "JetBrainsMono Nerd Font", monospace;
-  font-size: 14px;
+  font-size: 15px;
   min-height: 0;
 }
 
+
+
+
 window#waybar {
-  background: linear-gradient(135deg, 
-    rgba(10, 10, 10, 0.85) 0%,
-    rgba(20, 20, 30, 0.75) 50%,
-    rgba(10, 10, 10, 0.85) 100%);
-  color: #bfccdb;
-  border: 1px solid rgba(119, 144, 175, 0.3);
-  border-radius: 18px;
-  box-shadow: 
-    0 4px 20px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-  margin: 4px 8px;
-  transition: all 300ms ease;
+  background: rgba(4, 5, 6, 0.9);
+  color: #adbac7;
+  border: none;
+
+  border-bottom: 2px solid rgba(80, 115, 150, 1);
+  box-shadow: none;
+  margin: 0;
 }
 
-window#waybar:hover {
-  background: linear-gradient(135deg, 
-    rgba(15, 15, 15, 0.9) 0%,
-    rgba(25, 25, 35, 0.8) 50%,
-    rgba(15, 15, 15, 0.9) 100%);
-  border-color: rgba(119, 144, 175, 0.4);
-  box-shadow: 
-    0 6px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
-}
-
-/* Workspaces */
+/* ===== Workspaces ===== */
 #workspaces {
-  padding: 2px 8px;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(255, 255, 255, 0.03) 50%,
-    rgba(255, 255, 255, 0.08) 100%);
+  background: #12141a;
+  border: 1px solid #1e2025;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  margin: 2px;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.2);
+  padding: 0 6px;
+  margin: 6px 6px;
 }
 
 #workspaces button {
-  padding: 2px 10px;
-  margin: 0 1px;
-  color: #858e99;
+  padding: 0 6px;
+  min-width: 20px;
+  font-size: 15px;
+  color: #8a949e;
   background: transparent;
+  border: none;
   border-radius: 12px;
-  transition: all 250ms ease;
-  border: 1px solid transparent;
+  transition: all 150ms ease;
 }
 
 #workspaces button:hover {
-  color: #bfccdb;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.12) 0%,
-    rgba(255, 255, 255, 0.06) 50%,
-    rgba(255, 255, 255, 0.12) 100%);
-  border-color: rgba(119, 144, 175, 0.3);
-  box-shadow: 
-    0 2px 10px rgba(119, 144, 175, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-#workspaces button.focused {
-  color: #7790AF;
-  background: linear-gradient(135deg, 
-    rgba(119, 144, 175, 0.25) 0%,
-    rgba(119, 144, 175, 0.15) 50%,
-    rgba(119, 144, 175, 0.25) 100%);
-  border-color: rgba(119, 144, 175, 0.4);
-  box-shadow: 
-    0 0 12px rgba(119, 144, 175, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  color: #adbac7;
+  background: #181a1e;
 }
 
 #workspaces button.active {
-  color: #bfccdb;
-  background: linear-gradient(135deg, 
-    rgba(119, 144, 175, 0.4) 0%,
-    rgba(119, 144, 175, 0.25) 50%,
-    rgba(119, 144, 175, 0.4) 100%);
-  border-color: rgba(119, 144, 175, 0.6);
-  box-shadow: 
-    0 0 15px rgba(119, 144, 175, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  color: #090b0d;
+  background: #8a949e;
+  min-width: 26px;
+  font-size: 15px;
 }
 
 #workspaces button.urgent {
-  color: #9F6B64;
-  background: linear-gradient(135deg, 
-    rgba(159, 107, 100, 0.3) 0%,
-    rgba(159, 107, 100, 0.15) 50%,
-    rgba(159, 107, 100, 0.3) 100%);
-  border-color: rgba(159, 107, 100, 0.5);
-  box-shadow: 0 0 12px rgba(159, 107, 100, 0.4);
+  color: #b86a6a;
 }
 
-/* Modules */
+/* ===== Generic pill modules ===== */
 #clock,
 #battery,
 #network,
-#custom-updates,
+#cpu,
+#memory,
 #pulseaudio,
 #tray,
-#custom-nowplaying {
-  margin: 2px 2px;
-  padding: 2px 12px;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 50%,
-    rgba(255, 255, 255, 0.1) 100%);
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  transition: all 250ms ease;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.15);
+#custom-lock,
+#temperature,
+#bluetooth,
+#language,
+#mpris {
+  background: #12141a;
+  border: 1px solid #1e2025;
+  border-radius: 16px;
+  padding: 0 14px;
+  margin: 6px 3px;
+  color: #adbac7;
+  transition: all 150ms ease;
 }
 
 #clock:hover,
 #battery:hover,
 #network:hover,
-#custom-updates:hover,
+#cpu:hover,
+#memory:hover,
 #pulseaudio:hover,
-#tray:hover,
-#custom-nowplaying:hover {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0.15) 100%);
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 3px 12px rgba(0, 0, 0, 0.25);
+#custom-lock:hover,
+#temperature:hover,
+#bluetooth:hover,
+#mpris:hover {
+  background: #181a1e;
+  border-color: #2d3035;
+  color: #adbac7;
+}
+
+/* group modules that sit together into one pill instead of many */
+#cpu {
+  margin-right: 0;
+  border-radius: 16px 0 0 16px;
+  border-right: none;
+  padding-right: 8px;
+}
+
+#memory {
+  margin-left: 0;
+  border-radius: 0 16px 16px 0;
+  padding-left: 8px;
 }
 
 #clock {
-  font-weight: bold;
-  background: linear-gradient(135deg, 
-    rgba(119, 144, 175, 0.2) 0%,
-    rgba(119, 144, 175, 0.1) 50%,
-    rgba(119, 144, 175, 0.2) 100%);
-  border-color: rgba(119, 144, 175, 0.4);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 0 10px rgba(119, 144, 175, 0.2);
+  color: #adbac7;
+  font-weight: 500;
+}
+
+#clock:hover {
+  color: #f2d49e;
 }
 
 #battery.warning {
-  background: linear-gradient(135deg, 
-    rgba(249, 146, 34, 0.35) 0%,
-    rgba(249, 146, 34, 0.2) 50%,
-    rgba(249, 146, 34, 0.35) 100%);
-  color: #bfccdb;
-  border-color: rgba(249, 146, 34, 0.6);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 0 12px rgba(249, 146, 34, 0.3);
+  color: #f2d49e;
 }
 
 #battery.critical {
-  background: linear-gradient(135deg, 
-    rgba(243, 139, 168, 0.4) 0%,
-    rgba(243, 139, 168, 0.25) 50%,
-    rgba(243, 139, 168, 0.4) 100%);
-  color: #bfccdb;
-  border-color: rgba(243, 139, 168, 0.7);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 0 15px rgba(243, 139, 168, 0.4);
+  color: #b86a6a;
 }
 
 #pulseaudio.muted {
-  color: #f38ba8;
-  background: linear-gradient(135deg, 
-    rgba(243, 139, 168, 0.2) 0%,
-    rgba(243, 139, 168, 0.1) 50%,
-    rgba(243, 139, 168, 0.2) 100%);
-  border-color: rgba(243, 139, 168, 0.4);
+  color: #64778d;
 }
 
 #network.disconnected {
-  color: #f22444;
-  background: linear-gradient(135deg, 
-    rgba(242, 36, 68, 0.2) 0%,
-    rgba(242, 36, 68, 0.1) 50%,
-    rgba(242, 36, 68, 0.2) 100%);
-  border-color: rgba(242, 36, 68, 0.4);
+  color: #b86a6a;
 }
 
-/* Launcher */
-#custom-launcher {
-  font-size: 14px;
-  padding: 2px 14px;
-  margin-left: 4px;
-  color: #7790AF;
-  background: linear-gradient(135deg, 
-    rgba(119, 144, 175, 0.25) 0%,
-    rgba(119, 144, 175, 0.15) 25%,
-    rgba(119, 144, 175, 0.1) 50%,
-    rgba(119, 144, 175, 0.15) 75%,
-    rgba(119, 144, 175, 0.25) 100%);
-  border-radius: 14px;
-  border: 1px solid rgba(119, 144, 175, 0.4);
-  transition: all 300ms ease;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 2px 8px rgba(119, 144, 175, 0.2);
+#bluetooth.disabled {
+  color: #64778d;
 }
 
-#custom-launcher:hover {
-  background: linear-gradient(135deg, 
-    rgba(119, 144, 175, 0.35) 0%,
-    rgba(119, 144, 175, 0.25) 25%,
-    rgba(119, 144, 175, 0.2) 50%,
-    rgba(119, 144, 175, 0.25) 75%,
-    rgba(119, 144, 175, 0.35) 100%);
-  border-color: rgba(119, 144, 175, 0.6);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 4px 16px rgba(119, 144, 175, 0.3);
-}
-
-/* Tray */
+/* ===== Tray ===== */
 #tray {
-  padding: 2px 10px;
+  padding: 0 10px;
 }
 
-#tray > .passive {
+#tray>.passive {
   -gtk-icon-effect: dim;
 }
 
-#tray > .needs-attention {
+#tray>.needs-attention {
   -gtk-icon-effect: highlight;
+  color: #f2d49e;
 }
 
-/* Tooltip */
+/* ===== Tooltip ===== */
 tooltip {
-  background: linear-gradient(135deg, 
-    rgba(10, 10, 10, 0.95) 0%,
-    rgba(20, 20, 30, 0.95) 100%);
-  border: 1px solid rgba(119, 144, 175, 0.4);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  background: #12141a;
+  border: 1px solid #1e2025;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 tooltip label {
-  color: #bfccdb;
-  padding: 4px 8px;
-}
-/* Add #custom-lock to your existing modules list */
-#clock,
-#battery,
-#network,
-#custom-updates,
-#pulseaudio,
-#tray,
-#custom-nowplaying,
-#custom-lock {
-  margin: 2px 2px;
-  padding: 2px 12px;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 50%,
-    rgba(255, 255, 255, 0.1) 100%);
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  transition: all 250ms ease;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.15);
+  color: #adbac7;
+  padding: 6px 10px;
 }
 
-/* Add #custom-lock to hover states */
-#clock:hover,
-#battery:hover,
-#network:hover,
-#custom-updates:hover,
-#pulseaudio:hover,
-#tray:hover,
-#custom-nowplaying:hover,
-#custom-lock:hover {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0.15) 100%);
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 3px 12px rgba(0, 0, 0, 0.25);
-}
-
-/* Lock Button Specific Styling */
+/* ===== Lock button ===== */
 #custom-lock {
-  color: #c4b5fd;
-  font-size: 13px;
-  padding: 2px 10px;
-  margin-right: 4px;
-  background: linear-gradient(135deg, 
-    rgba(139, 92, 246, 0.2) 0%,
-    rgba(124, 58, 237, 0.12) 50%,
-    rgba(139, 92, 246, 0.2) 100%);
-  border-color: rgba(167, 139, 250, 0.35);
+  color: #64778d;
 }
 
 #custom-lock:hover {
-  color: #ddd6fe;
-  background: linear-gradient(135deg, 
-    rgba(139, 92, 246, 0.35) 0%,
-    rgba(124, 58, 237, 0.25) 50%,
-    rgba(139, 92, 246, 0.35) 100%);
-  border-color: rgba(196, 181, 253, 0.5);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-    0 0 14px rgba(139, 92, 246, 0.35);
+  color: #b86a6a;
 }
-
-/* ================================================================= */
-/*               DYNAMIC ISLAND (Add to bottom of file)              */
-/* ================================================================= */
-
-#custom-dynamic-island {
-    margin: 2px 4px;
-    padding: 2px 20px;
-    min-width: 80px;
-    background: linear-gradient(135deg, 
-        rgba(10, 10, 10, 0.95) 0%,
-        rgba(20, 20, 30, 0.85) 50%,
-        rgba(10, 10, 10, 0.95) 100%);
-    border-radius: 24px;
-    border: 1px solid rgba(119, 144, 175, 0.25);
-    color: #bfccdb;
-    font-size: 12px;
-    transition: min-width 300ms ease, padding 300ms ease, background-color 300ms ease;
-    box-shadow: 
-        inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
-        0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-#custom-dynamic-island.empty {
-    min-width: 40px;
-    padding: 2px 8px;
-    background: linear-gradient(135deg, 
-        rgba(10, 10, 10, 0.7) 0%,
-        rgba(20, 20, 30, 0.6) 50%,
-        rgba(10, 10, 10, 0.7) 100%);
-    border-color: rgba(119, 144, 175, 0.15);
-}
-
-#custom-dynamic-island.normal {
-    min-width: 200px;
-    padding: 4px 24px;
-    background: linear-gradient(135deg, 
-        rgba(119, 144, 175, 0.3) 0%,
-        rgba(119, 144, 175, 0.2) 50%,
-        rgba(119, 144, 175, 0.3) 100%);
-    border-color: rgba(119, 144, 175, 0.5);
-    box-shadow: 
-        0 0 20px rgba(119, 144, 175, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.2),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-}
-
-#custom-dynamic-island.low {
-    min-width: 180px;
-    padding: 3px 20px;
-    background: linear-gradient(135deg, 
-        rgba(119, 144, 175, 0.2) 0%,
-        rgba(119, 144, 175, 0.1) 50%,
-        rgba(119, 144, 175, 0.2) 100%);
-    border-color: rgba(119, 144, 175, 0.3);
-    color: #858e99;
-}
-
-#custom-dynamic-island.critical {
-    min-width: 220px;
-    padding: 5px 26px;
-    background: linear-gradient(135deg, 
-        rgba(243, 139, 168, 0.4) 0%,
-        rgba(243, 139, 168, 0.3) 50%,
-        rgba(243, 139, 168, 0.4) 100%);
-    border-color: rgba(243, 139, 168, 0.7);
-    animation: critical-pulse 2s ease-in-out infinite;
-    box-shadow: 
-        0 0 24px rgba(243, 139, 168, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.25),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-}
-
-#custom-dynamic-island:hover {
-    background: linear-gradient(135deg, 
-        rgba(119, 144, 175, 0.4) 0%,
-        rgba(119, 144, 175, 0.3) 50%,
-        rgba(119, 144, 175, 0.4) 100%);
-    box-shadow: 
-        0 0 25px rgba(119, 144, 175, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.25),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-}
-
