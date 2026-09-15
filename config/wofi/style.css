@@ -1,0 +1,104 @@
+/* VSCode Navy Wofi — Refined */
+
+* {
+    font-family: "FiraCode";
+    font-size: 18px;
+    font-weight: 400;
+}
+
+/* Main Window — left accent spine + subtle inner glow */
+window {
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-left: 3px solid #7fa8c9;
+    border-radius: 0;
+    background-color: #0e1114;
+    box-shadow: inset 1px 0 0 #7fa8c933;
+}
+
+/* Input — flush, quiet field with a divider */
+#input {
+    margin: 0;
+    padding: 18px 22px;
+    border: none;
+    border-bottom: 1px solid #7fa8c955;
+    border-radius: 0;
+    color: #e0e8f0;
+    background-color: transparent;
+    caret-color: #7fa8c9;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+#input:focus {
+    border-bottom-color: #7fa8c9;
+}
+
+/* Containers */
+#outer-box,
+#scroll,
+#inner-box {
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+}
+
+#inner-box {
+    padding: 6px 0;
+}
+
+/* Entries — left accent bar, generous padding */
+#entry {
+    margin: 0;
+    padding: 12px 22px;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    background-color: transparent;
+}
+
+#entry:hover {
+    border-left-color: #7fa8c966;
+    background-color: #141820;
+}
+
+#entry:selected {
+    border-left-color: #7fa8c9;
+    background-color: #141820;
+}
+
+/* Text — hierarchical, quiet by default */
+#text {
+    margin: 0;
+    color: #8fb4d4;
+    font-weight: 400;
+}
+
+#entry:hover #text {
+    color: #a8c8e0;
+}
+
+#entry:selected #text {
+    color: #e0e8f0;
+    font-weight: 500;
+}
+
+/* Icons — aligned with text baseline */
+#img {
+    margin-right: 14px;
+}
+
+/* Match highlighting — soft underline accent */
+#unmatched {
+    color: #8fb4d4;
+}
+
+#matched {
+    color: #b8d4ec;
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: #7fa8c966;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+}
