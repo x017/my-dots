@@ -316,15 +316,15 @@ static Window root, wmcheckwin;
 /* configuration, allows nested code to access above variables */
 #include "config.h"
 
-/* Versioned bar IPC: header plus per-monitor id, tag state and geometry. */
+/* IPC v3 adds one per-monitor flag for a selected, visible fullscreen client. */
 static void publishbar(void) {
-  unsigned long data[3 + 16 * 8] = {2, 0, LENGTH(tags)};
+  unsigned long data[3 + 16 * 9] = {3, 0, LENGTH(tags)};
   Monitor *m;
   Client *c;
   int n = 0;
   if (!barstateatom) return;
   for (m = mons; m && n < 16; m = m->next, n++) {
-    int at = 3 + n * 8;
+    int at = 3 + n * 9;
     data[at] = m->num; data[at + 1] = m->tagset[m->seltags];
     for (c = m->clients; c; c = c->next) {
       data[at + 2] |= c->tags & TAGMASK;
@@ -332,9 +332,10 @@ static void publishbar(void) {
     }
     data[at + 4] = (unsigned long)m->mx; data[at + 5] = (unsigned long)m->my;
     data[at + 6] = m->mw; data[at + 7] = m->mh;
+    data[at + 8] = m->sel && ISVISIBLE(m->sel) && m->sel->isfullscreen ? 1 : 0;
   }
   data[1] = n;
-  XChangeProperty(dpy, root, barstateatom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 3 + n * 8);
+  XChangeProperty(dpy, root, barstateatom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 3 + n * 9);
 }
 
 
@@ -2796,6 +2797,7 @@ void setfullscreen(Client *c, int fullscreen) {
     resizeclient(c, c->x, c->y, c->w, c->h);
     arrange(c->mon);
   }
+  publishbar();
 }
 
 void setgaps(const Arg *arg) {

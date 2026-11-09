@@ -6,6 +6,16 @@
 
 int main(void) {
     Bar b = {0}; Layout l; int widths[] = {800, 850, 1280, 1920}; size_t i;
+    {
+        unsigned long v[3 + 2 * 9] = {3, 2, 9}; int count, stride;
+        v[3 + 8] = 1; v[3 + 9 + 8] = 0;
+        assert(workspace_header(v, 3 + 2 * 9, &count, &stride));
+        assert(count == 2 && stride == 9 && v[3 + 8] == 1 && v[3 + stride + 8] == 0);
+        assert(!workspace_header(v, 3 + 2 * 9 - 1, &count, &stride));
+        v[0] = 2; assert(workspace_header(v, 3 + 2 * 8, &count, &stride) && stride == 8);
+        v[0] = 4; assert(!workspace_header(v, 3 + 2 * 9, &count, &stride));
+        v[0] = 3; v[1] = 17; assert(!workspace_header(v, 3 + 2 * 9, &count, &stride));
+    }
     b.tag_count = 9; b.tray_width = 68;
     for (i = 0; i < sizeof widths / sizeof widths[0]; i++) {
         b.width = widths[i]; b.current = 0; l = layout(&b);

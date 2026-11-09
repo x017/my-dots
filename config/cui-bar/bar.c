@@ -49,7 +49,7 @@
 #define XEMBED_MAPPED 1
 
 typedef struct { Window win; int mapped; } TrayIcon;
-typedef struct { Window win; int id, x, y, width, height; unsigned long active, occupied, urgent; } Panel;
+typedef struct { Window win; int id, x, y, width, height, mapped, fullscreen; unsigned long active, occupied, urgent; } Panel;
 typedef struct {
     Display *dpy;
     int screen, width;
@@ -71,7 +71,7 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
-    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications;
+    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
     Window tooltip; cui_ctx *tooltip_ui; int tooltip_kind, tooltip_panel, tooltip_width, tooltip_height;
@@ -340,37 +340,53 @@ static int panel_index(Bar *b, Window w) {
     int i; for (i = 0; i < b->panel_count; i++) if (b->panels[i].win == w) return i;
     return -1;
 }
+static void close_popup(Bar *b);
+static void close_tooltip(Bar *b);
+/* Accept the old geometry-only protocol too, so upgrading the bar first is safe. */
+static int workspace_header(const unsigned long *v, unsigned long n, int *count, int *stride) {
+    if (n < 3 || (v[0] != 2 && v[0] != 3)) return 0;
+    *stride = v[0] == 3 ? 9 : 8;
+    if (v[1] < 1 || v[1] > 16 || n < 3 + v[1] * (unsigned)*stride) return 0;
+    *count = (int)v[1]; return 1;
+}
 static void read_workspace(Bar *b) {
     Atom type; int format; unsigned long n, left; unsigned char *data = NULL;
-    if (XGetWindowProperty(b->dpy, b->root, b->state_atom, 0, 3 + 16 * 8, False, XA_CARDINAL,
+    if (XGetWindowProperty(b->dpy, b->root, b->state_atom, 0, 3 + 16 * 9, False, XA_CARDINAL,
                            &type, &format, &n, &left, &data) == Success && data &&
-        type == XA_CARDINAL && format == 32 && n >= 3 && ((unsigned long *)data)[0] == 2) {
+        type == XA_CARDINAL && format == 32) {
         unsigned long *v = (unsigned long *)data;
-        int count = (int)v[1], i;
-        if (count > 16) count = 16;
-        if (count < 1 || n < (unsigned long)(3 + count * 8)) goto done;
+        int count, stride, i;
+        if (!workspace_header(v, n, &count, &stride)) goto done;
         b->tag_count = v[2] > 9 ? 9 : (int)v[2];
         for (i = 0; i < count; i++) {
-            int at = 3 + i * 8, old_id = b->panels[i].id;
+            int at = 3 + i * stride, old_id = b->panels[i].id;
             Panel *p = &b->panels[i];
             int is_new = i >= b->panel_count;
             int was_uninitialized = p->width <= 1;
             int old_x = p->x, old_y = p->y, old_width = p->width;
             if (is_new) {
                 XSetWindowAttributes attr;
+                p->mapped = 0;
                 attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
                 attr.event_mask = ExposureMask | ButtonPressMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask;
                 p->win = XCreateWindow(b->dpy, b->root, 0, 0, 1, HEIGHT, 0, DefaultDepth(b->dpy, b->screen),
                                        InputOutput, DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
             }
-            p->id = (int)v[at]; p->active = v[at + 1]; p->occupied = v[at + 2]; p->urgent = v[at + 3];
+            p->id = (int)v[at]; p->fullscreen = stride == 9 && (v[at + 8] & 1);
+            p->active = v[at + 1]; p->occupied = v[at + 2]; p->urgent = v[at + 3];
             p->x = (int32_t)v[at + 4]; p->y = (int32_t)v[at + 5] + TOP_GAP;
             p->width = (int)v[at + 6]; p->height = (int)v[at + 7] - TOP_GAP;
             if (p->width > SIDE_GAP * 2 + 1) { p->x += SIDE_GAP; p->width -= SIDE_GAP * 2; }
             if (p->width <= 0 || p->width > 32767) p->width = 1;
             XMoveResizeWindow(b->dpy, p->win, p->x, p->y, p->width, HEIGHT);
             if (is_new || old_width != p->width) shape_window(b, p->win, p->width, HEIGHT, RADIUS);
-            XMapRaised(b->dpy, p->win);
+            if (p->fullscreen) {
+                if (b->popup && b->popup_monitor == p->id) close_popup(b);
+                if (b->tooltip && b->tooltip_panel == i) close_tooltip(b);
+                if (p->mapped) { XUnmapWindow(b->dpy, p->win); p->mapped = 0; }
+            } else if (!p->mapped) {
+                XMapRaised(b->dpy, p->win); p->mapped = 1;
+            }
             if (is_new || old_id != p->id || was_uninitialized || old_x != p->x || old_y != p->y || old_width != p->width) send_command(b, 2, (long)p->win, p->id);
         }
         for (i = count; i < b->panel_count; i++) XDestroyWindow(b->dpy, b->panels[i].win);
@@ -556,7 +572,7 @@ static void open_popup(Bar *b, int page) {
     style(b->popup_ui);
     cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
-    b->popup_width = width; b->popup_height = height;
+    b->popup_width = width; b->popup_height = height; b->popup_monitor = p->id;
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page == 5 ? 4 : page;
     popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4; b->popup_notifications = page == 6;
     XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
@@ -1120,10 +1136,8 @@ int main(void) {
     if (!acquire_tray(&b)) { result = 1; goto cleanup; }
     XSelectInput(b.dpy, b.root, PropertyChangeMask | StructureNotifyMask);
     read_workspace(&b);
-    if (b.panels[0].width > 1) {
-        XMapRaised(b.dpy, b.win);
-        send_command(&b, 2, (long)b.win, b.panels[0].id);
-    } else fprintf(stderr, "cui-bar: waiting for dwm's version 2 monitor IPC; rebuild and restart dwm if it does not appear\n");
+    if (b.panels[0].width <= 1)
+        fprintf(stderr, "cui-bar: waiting for dwm monitor IPC; rebuild and restart dwm if it does not appear\n");
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
     if (!start_island(&b)) fprintf(stderr, "cui-bar: could not start island worker\n");
     while (running) {
@@ -1133,7 +1147,7 @@ int main(void) {
         if (dirty) {
             for (i = 0; i < b.panel_count; i++) {
                 use_panel(&b, i);
-                if (!draw(&b)) { fprintf(stderr, "cui-bar: unsupported X11 visual or allocation failure\n"); result = 1; running = 0; break; }
+                if (b.panels[i].mapped && !draw(&b)) { fprintf(stderr, "cui-bar: unsupported X11 visual or allocation failure\n"); result = 1; running = 0; break; }
             }
             use_panel(&b, 0);
             if (!running) break;
