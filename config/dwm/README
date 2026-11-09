@@ -166,6 +166,7 @@ launched from a separate dashboard executable:
 * Ctrl+Alt+Shift+D: CUI version, if built with CUI=1 as described below. Its
   interface is compiled into dwm; its event loop runs in a forked child with
   a separate floating X11 window so the window manager remains responsive.
+  It uses the same modern overview and sections as the bar dashboard.
 
 Both use nmcli (NetworkManager), bluetoothctl (BlueZ), and pactl (PulseAudio
 or PipeWire's PulseAudio compatibility service). These services must be
