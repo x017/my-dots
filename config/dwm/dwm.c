@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <locale.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -499,24 +500,106 @@ displaypick(const char *title, char **items, int count)
   return result;
 }
 
-/* xrandr is queried without interpolating user input; the companion script
- * performs and persists the selected setting, also supporting --apply. */
+/* The same three-column format used by the original refreshmenu script. */
+static int
+displayconfigpath(char *dir, size_t dirsize, char *path, size_t pathsize)
+{
+  const char *base = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+  int n;
+  if (base && *base == '/') n = snprintf(dir, dirsize, "%s", base);
+  else if (home && *home) n = snprintf(dir, dirsize, "%s/.config", home);
+  else return 0;
+  if (n < 0 || (size_t)n >= dirsize) return 0;
+  n = snprintf(path, pathsize, "%s/refreshrate.conf", dir);
+  return n >= 0 && (size_t)n < pathsize;
+}
+
+static int
+displayapply(const char *output, const char *mode, const char *rate)
+{
+  pid_t child, waited;
+  int status;
+  child = fork();
+  if (child < 0) return 0;
+  if (child == 0) {
+    execlp("xrandr", "xrandr", "--output", output, "--mode", mode, "--rate", rate, (char *)NULL);
+    _exit(127);
+  }
+  do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+  return waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static int
+displaysave(const char *output, const char *mode, const char *rate)
+{
+  char dir[PATH_MAX], path[PATH_MAX], tmp[PATH_MAX], name[256];
+  char *line = NULL;
+  size_t len = 0;
+  FILE *in = NULL, *out;
+  int fd, ok = 1, needs_newline = 0;
+  if (!displayconfigpath(dir, sizeof dir, path, sizeof path)) return 0;
+  if (mkdir(dir, 0700) < 0 && errno != EEXIST) return 0;
+  in = fopen(path, "r");
+  if (!in && errno != ENOENT) return 0;
+  if (snprintf(tmp, sizeof tmp, "%s.tmp.XXXXXX", path) >= (int)sizeof tmp) {
+    if (in) fclose(in);
+    return 0;
+  }
+  fd = mkstemp(tmp);
+  if (fd < 0) { if (in) fclose(in); return 0; }
+  out = fdopen(fd, "w");
+  if (!out) { close(fd); unlink(tmp); if (in) fclose(in); return 0; }
+  if (in) {
+    while (getline(&line, &len, in) >= 0) {
+      if (sscanf(line, "%255s", name) == 1 && !strcmp(name, output)) continue;
+      if (fputs(line, out) == EOF) { ok = 0; break; }
+      needs_newline = line[0] && line[strlen(line) - 1] != '\n';
+    }
+    if (ferror(in)) ok = 0;
+    if (fclose(in) != 0) ok = 0;
+  }
+  free(line);
+  if (needs_newline && fputc('\n', out) == EOF) ok = 0;
+  if (fprintf(out, "%s %s %s\n", output, mode, rate) < 0) ok = 0;
+  if (fclose(out) != 0) ok = 0;
+  if (ok && rename(tmp, path) == 0) return 1;
+  unlink(tmp);
+  return 0;
+}
+
+/* This mode runs as a one-shot command from autostart, not as a second WM. */
+static int
+restoredisplaymodes(void)
+{
+  char dir[PATH_MAX], path[PATH_MAX], *line = NULL;
+  char output[256], mode[64], rate[64], extra;
+  size_t len = 0;
+  int ok = 1;
+  FILE *fp;
+  if (!displayconfigpath(dir, sizeof dir, path, sizeof path)) return 1;
+  fp = fopen(path, "r");
+  if (!fp) return errno == ENOENT ? 0 : 1;
+  signal(SIGCHLD, SIG_DFL);
+  while (getline(&line, &len, fp) >= 0) {
+    if (sscanf(line, "%255s %63s %63s %c", output, mode, rate, &extra) != 3) continue;
+    if (!displayapply(output, mode, rate)) {
+      fprintf(stderr, "dwm: failed to restore %s %s %s\n", output, mode, rate);
+      ok = 0;
+    }
+  }
+  if (ferror(fp)) ok = 0;
+  free(line); fclose(fp);
+  return ok ? 0 : 1;
+}
+
+/* The popup and persistence live in dwm. xrandr remains the X11 mode backend. */
 void displaymodeswitcher(const Arg *arg)
 {
   FILE *fp;
-  char line[4096], output[256], state[32], mode[64], rate[64], title[320], script[4096];
-  const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+  char line[4096], output[256], state[32], mode[64], rate[64], title[320];
   char **outputs = NULL, **modes = NULL, **rates = NULL, **labels = NULL;
   int nout = 0, nmode = 0, chosen, selectedmode, active = 0, i;
   (void)arg;
-  if (config && *config) snprintf(script, sizeof script, "%s/dwm/refreshmenu.sh", config);
-  else if (home && *home) snprintf(script, sizeof script, "%s/.config/dwm/refreshmenu.sh", home);
-  else script[0] = '\0';
-  if (!script[0] || access(script, X_OK)) {
-    char *notice[] = {"Install executable ~/.config/dwm/refreshmenu.sh first."};
-    displaypick("D I S P L A Y S", notice, 1);
-    return;
-  }
   if (!(fp = popen("LC_ALL=C xrandr --query 2>/dev/null", "r"))) return;
   while (fgets(line, sizeof line, fp)) {
     if (line[0] == ' ' || line[0] == '\t') continue;
@@ -571,10 +654,19 @@ void displaymodeswitcher(const Arg *arg)
     goto cleanup;
   }
   selectedmode = displaypick(title, labels, nmode);
-  if (selectedmode >= 0) {
-    const char *cmd[] = {"/bin/sh", "-c", "exec \"${XDG_CONFIG_HOME:-$HOME/.config}/dwm/refreshmenu.sh\" --set \"$1\" \"$2\" \"$3\"", "dwm-refresh", outputs[chosen], modes[selectedmode], rates[selectedmode], NULL};
-    Arg command = {.v = cmd};
-    spawn(&command);
+  if (selectedmode >= 0 && fork() == 0) {
+    /* Do not block dwm while xrandr changes the screen. Persist only success. */
+    close(ConnectionNumber(dpy));
+    signal(SIGCHLD, SIG_DFL);
+    if (!displayapply(outputs[chosen], modes[selectedmode], rates[selectedmode])) {
+      fprintf(stderr, "dwm: could not apply display mode for %s\n", outputs[chosen]);
+      _exit(1);
+    }
+    if (!displaysave(outputs[chosen], modes[selectedmode], rates[selectedmode])) {
+      fprintf(stderr, "dwm: could not save display mode: %s\n", strerror(errno));
+      _exit(1);
+    }
+    _exit(0);
   }
 cleanup:
   for (i = 0; i < nout; i++) free(outputs[i]);
@@ -3675,10 +3767,12 @@ void warp(const Client *c) {
 }
 
 int main(int argc, char *argv[]) {
+  if (argc == 2 && !strcmp("--apply-display-settings", argv[1]))
+    return restoredisplaymodes();
   if (argc == 2 && !strcmp("-v", argv[1]))
     die("dwm-" VERSION);
   else if (argc != 1)
-    die("usage: dwm [-v]");
+    die("usage: dwm [-v | --apply-display-settings]");
   if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
     fputs("warning: no locale support\n", stderr);
   if (!(dpy = XOpenDisplay(NULL)))

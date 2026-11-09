@@ -97,14 +97,17 @@ switcher does not change Hyprland's wallpaper configuration.
 Display modes, keyboard layout and wallpaper restore
 ----------------------------------------------------
 Alt+Shift+R opens a native dwm popup: select a connected monitor, then a
-resolution and refresh rate reported by xrandr. Arrow keys and Enter or mouse
-clicks select; Escape cancels. A helper `~/.config/dwm/refreshmenu.sh` (or
-the equivalent under XDG_CONFIG_HOME) applies the choice and saves it to
+resolution and refresh rate. Arrow keys and Enter or mouse clicks select;
+Escape cancels. dwm calls xrandr and saves a successful choice in
 ${XDG_CONFIG_HOME:-$HOME/.config}/refreshrate.conf, compatible with your
-existing file. Run the same script with `--apply` in your autostart to restore
-those modes. Requires xrandr. Copy refreshmenu.sh into ~/.config/dwm and make
-it executable. Running the script by itself still offers the original rofi
-menu, if rofi is installed.
+existing file. No refreshmenu script or rofi is needed. To restore modes at
+login, replace the old refreshmenu --apply line in your autostart with:
+
+    dwm --apply-display-settings
+
+This is a one-shot command, not a second window manager. Run it after your
+xrandr positioning command and before restoring the wallpaper. xrandr must be
+installed and dwm must be on PATH; failures are printed to the session log.
 
 Win+Space now changes the XKB group directly in dwm; it no longer depends on
 `kb-lay-switch`. Configure both layouts once in autostart with:
@@ -126,7 +129,7 @@ on every login. Replace it rather than adding another feh command beside it:
         feh --bg-fill "$HOME/Downloads/wallpaper/glassmorphsesimjapon.png" &
     fi
 
-Run this *after* the xrandr positioning and refreshmenu --apply commands.
+Run this *after* the xrandr positioning and dwm --apply-display-settings commands.
 The picker uses feh, which writes ~/.fehbg on a successful change. See
 `autostart.example.sh` for an example based on your current setup; merge it
 into your existing dwm autostart instead of running both copies. The example
@@ -136,3 +139,26 @@ The wallpaper preview now decodes only the highlighted image in a separate,
 cancellable helper and transfers a scaled preview back to dwm. Moving through
 high-resolution files should not block the dwm event loop; applying via feh
 can still take a few seconds for large images.
+
+Automatic external setup
+------------------------
+After copying this configuration, run:
+
+    ~/.config/dwm/setup-external.sh
+
+The script configures the dwm autostart file, matching dwm's XDG_DATA_HOME
+(or ~/.local/share/dwm, then ~/.dwm) directory selection. It backs up an
+existing file, preserves unrelated startup lines, and replaces the exact
+wallpaper, monitor, refreshmenu, network-applet and keyboard lines shown in
+the example above. It installs a managed block that restores saved display
+modes, restores ~/.fehbg after monitor setup (using your old wallpaper as a
+fallback), starts nm-applet, and configures the two XKB groups. It is safe to
+run again. For safety it stops without changing anything if it finds an
+unrecognised conflicting wallpaper, display or keyboard command; resolve
+those lines manually and rerun. The eDP-1/HDMI-1 arrangement in the block is
+applied only when both outputs are connected.
+
+The script does not install packages, build dwm, or change your login command.
+Install the required programs and rebuild/install dwm separately, then restart
+the session. The switchers create ~/.fehbg and refreshrate.conf when choices
+are successfully applied; the setup script does not overwrite those files.

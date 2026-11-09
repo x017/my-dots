@@ -1,11 +1,9 @@
 #!/bin/sh
 # Example for ~/.local/share/dwm/autostart.sh. Merge with your existing file;
 # do not run alongside the old hard-coded feh/setxkbmap/refreshmenu lines.
-config=${XDG_CONFIG_HOME:-$HOME/.config}
-
 nm-applet &
 xrandr --output eDP-1 --right-of HDMI-1
-"$config/dwm/refreshmenu.sh" --apply
+dwm --apply-display-settings
 
 # Restore after xrandr, so the saved wallpaper matches the final geometry.
 if [ -x "$HOME/.fehbg" ]; then
