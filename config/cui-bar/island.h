@@ -160,7 +160,8 @@ static void island_worker(int fd) {
         int ready, action; char out[256];
         island_sample(&frame);
         if (send(fd, &frame, sizeof frame, MSG_NOSIGNAL) != sizeof frame) break;
-        ready = poll(&p, 1, 2000);
+        /* Faster updates without polling on the X11 render thread. */
+        ready = poll(&p, 1, 500);
         if (ready < 0 && errno == EINTR) continue;
         if (ready < 0 || (p.revents & (POLLHUP | POLLERR | POLLNVAL))) break;
         if (ready && (p.revents & POLLIN)) {

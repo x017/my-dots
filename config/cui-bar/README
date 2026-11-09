@@ -53,7 +53,9 @@ when space is needed. Multi-monitor support requires dwm built with Xinerama.
 The island uses `playerctl` and an MPRIS-compatible player for track metadata
 and previous/play-pause/next controls. Long titles scroll, and the small bars
 animate while playing. Clicking the bell or track opens a panel with media
-controls and recent notifications. The notification part integrates with a
+controls and recent notifications directly beneath the island (or right-aligned
+when the island does not fit). The island worker polls roughly every 500 ms,
+plus the time needed to run its commands. The notification part integrates with a
 running Dunst daemon via `dunstctl` (and `busctl` for history); it does not
 start or replace a notification daemon. The number is displayed/waiting
 notifications when present, otherwise the size of Dunst's history, not an

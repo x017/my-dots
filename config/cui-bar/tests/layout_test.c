@@ -36,6 +36,9 @@ int main(void) {
             assert(l.island + l.island_width <= l.tray - 6);
             if (l.stats) assert(l.island >= l.tags + b.tag_count * 28 + 22 + 296);
             assert(hover_kind(&b, l.island) == TIP_ISLAND);
+            { int x = notification_popup_x(&b, 400);
+              assert(x >= 0 && x + 400 <= b.width);
+              assert(x + 200 == l.island + l.island_width / 2 || x == 0 || x + 400 == b.width); }
         }
         assert(hover_kind(&b, l.dashboard) == TIP_DASHBOARD);
     }

@@ -548,6 +548,7 @@ static void close_popup(Bar *b) {
     if (b->popup_ui) { cui_destroy(b->popup_ui); b->popup_ui = NULL; }
     wipe(&popup_state, sizeof popup_state); popup_bar = NULL;
 }
+static int notification_popup_x(const Bar *b, int width);
 static void open_popup(Bar *b, int page) {
     XSetWindowAttributes attr; cui_renderer_iface iface;
     Panel *p = &b->panels[b->current];
@@ -561,7 +562,7 @@ static void open_popup(Bar *b, int page) {
     attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
     attr.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
                       LeaveWindowMask | KeyPressMask | KeyReleaseMask;
-    b->popup = XCreateWindow(b->dpy, b->root, p->x + p->width - width, p->y + HEIGHT + 6,
+    b->popup = XCreateWindow(b->dpy, b->root, p->x + (page == 6 ? notification_popup_x(b, width) : p->width - width), p->y + HEIGHT + 6,
                             width, height, 0, DefaultDepth(b->dpy, b->screen), InputOutput,
                             DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
     if (!b->popup) return;
@@ -762,6 +763,15 @@ static Layout layout(const Bar *b) {
         if (l.island + l.island_width > right_limit) l.island = right_limit - l.island_width;
     }
     return l;
+}
+/* Align the notification panel with the island, clamped to this monitor.
+ * If the island does not fit, the dashboard shortcut remains right-aligned. */
+static int notification_popup_x(const Bar *b, int width) {
+    Layout l = layout(b);
+    int x = l.island_width ? l.island + l.island_width / 2 - width / 2 : b->width - width;
+    if (x < 0) x = 0;
+    if (x > b->width - width) x = b->width - width;
+    return x;
 }
 static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const char *text) {
     cui_draw_text(ui, CUI_FONT_MONO, size, (cui_vec2){x, y}, color, text, -1);
