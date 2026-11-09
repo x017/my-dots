@@ -74,41 +74,31 @@ than three monitors, the cards page automatically as you cycle. The previews
 use the same X extensions and fallback as the window switcher. Existing
 Alt+comma and Alt+period monitor focus shortcuts still work.
 
-Standalone GTK3 bar
--------------------
-The built-in dwm bar and its tray are disabled. `bar/` contains a small
-separate X11 bar written in C and GTK3, not Waybar or a status script. It has
-clickable tags per monitor, CPU, network, audio, and date/time. Its layout,
-commands and polling are in `bar/bar.c`; colors and pill styling are in
-`bar/style.css`. This is deliberately a small starting point, not a complete
-Waybar replacement: there is no tray or tooltip system.
+Wallpaper picker
+----------------
+Alt+Shift+W opens a standalone GTK3 picker using the Quickshell Editor Dark
+palette. It scans ~/Downloads/wallpaper (the folder used by the Hyprland
+configuration), displays thumbnails and a larger preview, and watches that
+folder for changes. Search by filename, select an image and press Set
+wallpaper, or double-click an image. Escape closes the picker. Images directly
+in the folder with jpg, jpeg, png, webp, bmp or gif extensions are shown;
+decoding depends on the installed GdkPixbuf loaders.
 
-Install GTK3, Xlib and pkg-config development packages, plus the dwm build
-requirements above. Then:
+Install GTK3 and pkg-config development packages and feh, then build and
+install the picker separately:
 
-    cd ~/.config/dwm
-    make clean install        # run with appropriate install permissions
-    cd bar
+    cd ~/.config/dwm/wallpaper
     make
-    sudo make install         # installs dwm-bar to /usr/local/bin
+    sudo make install
 
-Keep `bar/style.css` at ~/.config/dwm/bar/style.css (or under
-$XDG_CONFIG_HOME/dwm/bar/). Start `dwm-bar` once from your existing
-~/.local/share/dwm/autostart.sh, for example by adding `dwm-bar &`, then
-restart dwm. The bar needs the modified dwm: `_DWM_BAR_STATE` is an X11 root
-property with one line per monitor (`id x y width height selected occupied
-urgent`); `_DWM_BAR_VIEW` is a root ClientMessage containing monitor id, tag
-bit and action (0 view, 1 toggle). This keeps the GTK code independent and
-makes the interface easy to extend.
+Rebuild and restart dwm to enable the shortcut and floating window rule. The
+picker runs `feh --bg-fill` on the selected file, applying it to the X11
+screens and saving ~/.fehbg. To restore the choice on login, add
+`[ -x "$HOME/.fehbg" ] && "$HOME/.fehbg" &` to your existing dwm autostart
+script or .xinitrc. A failed feh invocation is reported in the picker; it
+does not change Hyprland's wallpaper configuration.
 
-The bar reserves 40 pixels at the top of every monitor. If you change
-BAR_HEIGHT in `bar/bar.c`, also change externalbarheight in dwm's config.h
-and rebuild both. To remove the reservation when not using the bar, set
-externalbarheight to 0 and rebuild dwm. The reservation persists even if the
-bar is stopped. Left/right click a tag to view/toggle it. Left or right click
-audio to mute, scroll to change volume by 2%, or middle click for pavucontrol;
-network opens nm-connection-editor, CPU opens top in Ghostty, and the clock
-opens gsimplecal. These commands are optional and can be changed in bar.c.
-`pactl` and a PulseAudio-compatible server provide volume; `nmcli` provides
-network state; missing commands show placeholders. Restart the bar to reload
-CSS changes. A Nerd Font is needed for the icons.
+To use another directory, set DWM_WALLPAPERS_DIR to an absolute path in your
+session environment, or run `dwm-wallpapers /path/to/wallpapers`. If the
+folder is missing or unreadable, the picker reports the error; create it or
+fix permissions and use Refresh. The command must be on PATH for the shortcut.

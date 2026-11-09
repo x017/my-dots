@@ -227,7 +227,6 @@ static void detach(Client *c);
 static void detachstack(Client *c);
 static Monitor *dirtomon(int dir);
 static void drawbar(Monitor *m);
-static void publishbarstate(void);
 static void drawbars(void);
 static int drawstatusbar(Monitor *m, int bh, char *text);
 static void enternotify(XEvent *e);
@@ -344,7 +343,6 @@ static void (*handler[LASTEvent])(XEvent *) = {
     [ResizeRequest] = resizerequest,
     [UnmapNotify] = unmapnotify};
 static Atom wmatom[WMLast], netatom[NetLast], xatom[XLast];
-static Atom barstateatom, barviewatom;
 static int running = 1;
 static Cur *cursor[CurLast];
 static Clr **scheme;
@@ -963,7 +961,6 @@ void cleanup(void) {
   XSync(dpy, False);
   XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
   XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
-  XDeleteProperty(dpy, root, barstateatom);
 }
 
 void cleanupmon(Monitor *mon) {
@@ -986,18 +983,6 @@ void clientmessage(XEvent *e) {
   XSetWindowAttributes swa;
   XClientMessageEvent *cme = &e->xclient;
   Client *c = wintoclient(cme->window);
-
-  if (cme->window == root && cme->message_type == barviewatom && cme->format == 32) {
-    Monitor *m;
-    Arg a;
-    for (m = mons; m && m->num != cme->data.l[0]; m = m->next) ;
-    a.ui = (unsigned int)cme->data.l[1] & TAGMASK;
-    if (!m || !a.ui || (a.ui & (a.ui - 1)) ||
-        (cme->data.l[2] != 0 && cme->data.l[2] != 1)) return;
-    if (m != selmon) { unfocus(selmon->sel, 0); selmon = m; focus(NULL); }
-    if (cme->data.l[2] == 1) toggleview(&a); else view(&a);
-    return;
-  }
 
   if (showsystray && cme->window == systray->win &&
       cme->message_type == netatom[NetSystemTrayOP]) {
@@ -1341,31 +1326,6 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
   return ret;
 }
 
-/* A small, documented X11 interface for the independent GTK bar. */
-void publishbarstate(void) {
-  Monitor *m;
-  Client *c;
-  char state[4096];
-  size_t used = 0;
-  int len;
-  unsigned int occ, urg;
-  if (!barstateatom) return;
-  for (m = mons; m; m = m->next) {
-    occ = urg = 0;
-    for (c = m->clients; c; c = c->next) {
-      occ |= c->tags;
-      if (c->isurgent) urg |= c->tags;
-    }
-    len = snprintf(state + used, sizeof state - used, "%d %d %d %d %d %u %u %u\n",
-                   m->num, m->mx, m->my, m->mw, m->mh,
-                   m->tagset[m->seltags], occ, urg);
-    if (len < 0 || (size_t)len >= sizeof state - used) break;
-    used += len;
-  }
-  XChangeProperty(dpy, root, barstateatom, XA_STRING, 8, PropModeReplace,
-                  (unsigned char *)state, used);
-}
-
 void drawbar(Monitor *m) {
   int x, w, tw = 0, stw = 0;
   int boxs = drw->fonts->h / 9;
@@ -1373,7 +1333,6 @@ void drawbar(Monitor *m) {
   unsigned int i, occ = 0, urg = 0;
   Client *c;
 
-  publishbarstate();
   if (!m->showbar)
     return;
 
@@ -2459,8 +2418,6 @@ void setup(void) {
   netatom[NetWMWindowTypeDialog] =
       XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
   netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
-  barstateatom = XInternAtom(dpy, "_DWM_BAR_STATE", False);
-  barviewatom = XInternAtom(dpy, "_DWM_BAR_VIEW", False);
   xatom[Manager] = XInternAtom(dpy, "MANAGER", False);
   xatom[Xembed] = XInternAtom(dpy, "_XEMBED", False);
   xatom[XembedInfo] = XInternAtom(dpy, "_XEMBED_INFO", False);
@@ -2751,11 +2708,8 @@ void updatebarpos(Monitor *m) {
     m->wh -= bh;
     m->by = m->topbar ? m->wy : m->wy + m->wh;
     m->wy = m->topbar ? m->wy + bh : m->wy;
-  } else {
+  } else
     m->by = -bh;
-    m->wy += MIN(externalbarheight, m->mh);
-    m->wh -= MIN(externalbarheight, m->mh);
-  }
 }
 
 void updateclientlist(void) {

@@ -5,7 +5,6 @@ static const unsigned int borderpx = 1; /* border pixel of windows */
 static const unsigned int snap = 32;    /* snap pixel */
 static const int showbar = 0;           /* 0 means no bar */
 static const int topbar = 1;            /* 0 means bottom bar */
-static const int externalbarheight = 40; /* reserved top space for dwm-bar; 0 to disable */
 static const int startwithgaps = 1;     /* 1 means gaps are used by default */
 static const unsigned int gappx =
     10; /* default gap between windows in pixels */
@@ -24,7 +23,7 @@ static const unsigned int systrayspacing = 2; /* systray spacing */
 static const int systraypinningfailfirst =
     1; /* 1: if pinning fails, display systray on the first monitor, 0: on the
           last monitor */
-static const int showsystray = 0; /* 0 means no systray */
+static const int showsystray = 1; /* 0 means no systray */
 
 /* colors: dusk Tokyo street */
 static const char dmenufont[] = "monospace:size=10";
@@ -82,6 +81,7 @@ static const Rule rules[] = {
     {NULL, "pavucontrol", NULL, 0, 1, -1},
     {NULL, "blueberry", NULL, 0, 1, -1},
     {NULL, "nm-connection-editor", NULL, 0, 1, -1},
+    {NULL, "dwm-wallpapers", NULL, 0, 1, -1},
 };
 
 /* layout(s) */
@@ -125,10 +125,12 @@ static const char *powercmd[] = {"mel", "--power", NULL};
 static const char *refreshcmd[] = {"/home/parsa/.local/bin/refreshmenu", NULL};
 static const char *lockcmd[] = {"mel", NULL};
 static const char *changelayoutcmd[] = {"kb-lay-switch", NULL};
+static const char *wallpapercmd[] = {"dwm-wallpapers", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
     {MODKEY, XK_p, spawn, {.v = roficmd}},
     {MODKEY, XK_q, spawn, {.v = termcmd}},
+    {MODKEY, XK_b, togglebar, {0}},
     {MODKEY, XK_j, focusstack, {.i = +1}},
     {MODKEY, XK_k, focusstack, {.i = -1}},
     {MODKEY, XK_h, setmfact, {.f = -0.05}},
@@ -153,6 +155,7 @@ static const Key keys[] = {
     {MODKEY | ShiftMask, XK_minus, setgaps, {.i = GAP_RESET}},
     {MODKEY | ShiftMask, XK_equal, setgaps, {.i = GAP_TOGGLE}},
     {MODKEY | ShiftMask, XK_r, spawn, {.v = refreshcmd}},
+    {MODKEY | ShiftMask, XK_w, spawn, {.v = wallpapercmd}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},
     {MODKEY, XK_Up, focusdir, {.i = 2}},
