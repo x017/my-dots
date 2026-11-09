@@ -15,7 +15,7 @@ OBJ += dashboard/cui-embedded.o
 CFLAGS += -DDWM_CUI -I$(CUI_DIR)/include
 LDFLAGS += $(CUI_LIB) -pthread -lm
 
-dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h $(CUI_LIB)
+dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
 endif
 

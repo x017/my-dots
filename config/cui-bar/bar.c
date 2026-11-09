@@ -39,7 +39,8 @@
 #define MAX_ICONS 64
 #define PAD 8
 #define BUTTON_WIDTH 92
-#define RIGHT_MODULES 336
+#define NET_WIDTH(width) ((width) >= 850 ? 150 : 96)
+#define RIGHT_MODULES(width) (336 + NET_WIDTH(width) - 62)
 #define TRAY_PAD 8
 #define XEMBED_EMBEDDED_NOTIFY 0
 #define XEMBED_WINDOW_ACTIVATE 1
@@ -111,12 +112,12 @@ static int icon_mapped(Bar *b, Window w) {
 }
 static void position_icons(Bar *b) {
     int i, n = 0, x;
-    int limit = (b->width - (24 + b->tag_count * 28 + RIGHT_MODULES)) / ICON_SLOT;
+    int limit = (b->width - (24 + b->tag_count * 28 + RIGHT_MODULES(b->width))) / ICON_SLOT;
     if (limit < 0) limit = 0;
     if (limit > 8) limit = 8;
     for (i = 0; i < b->count; i++) if (b->icons[i].mapped && n < limit) n++;
     b->tray_width = n ? n * ICON_SLOT + TRAY_PAD : 0;
-    x = b->width - RIGHT_MODULES - b->tray_width + TRAY_PAD / 2;
+    x = b->width - RIGHT_MODULES(b->width) - b->tray_width + TRAY_PAD / 2;
     n = 0;
     for (i = 0; i < b->count; i++) {
         if (b->icons[i].mapped && n++ < limit) {
@@ -567,8 +568,8 @@ static int draw_popup(Bar *b) {
         cui_scroll(ui, .id = "controls", .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 12) {
             cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
                 cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                    cui_text(ui, "QUICK CONTROLS", .font = CUI_FONT_MEDIUM, .size = 16);
-                    cui_text(ui, "NETWORK  /  SOUND  /  DESKTOP", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+                    cui_text(ui, "Control center", .font = CUI_FONT_MEDIUM, .size = 18);
+                    cui_text(ui, "Your connections and devices, in one place", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
                 }
                 if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
             }
@@ -634,14 +635,15 @@ static void popup_event(Bar *b, XEvent *e) {
 
 /* A left-hand workspace rail, optional telemetry, then a compact control dock.
  * The same geometry drives painting, hit testing and tray placement. */
-typedef struct { int stats, tags, audio, network, bluetooth, tray, clock, language, lock; } Layout;
+typedef struct { int stats, tags, audio, network, network_width, bluetooth, tray, clock, language, lock; } Layout;
 static Layout layout(const Bar *b) {
     Layout l; int right = b->width - PAD;
     l.lock = right - 28; right = l.lock - 4;
     l.clock = right - 64; right = l.clock - 4;
     l.language = right - 34; right = l.language - 4;
     l.bluetooth = right - 54; right = l.bluetooth - 4;
-    l.network = right - 62; right = l.network - 4;
+    l.network_width = NET_WIDTH(b->width);
+    l.network = right - l.network_width; right = l.network - 4;
     l.audio = right - 62; right = l.audio - 4;
     l.tray = right - (b->current == 0 ? b->tray_width : 0);
     l.tags = 10;
@@ -656,11 +658,36 @@ static void dock_cell(cui_ctx *ui, int x, int w, const char *title, const char *
     cui_draw_rect(ui, (cui_rect){x + 4, 8, 2, 18}, CUI_CORNERS(1), accent);
     cui_push_clip(ui, (cui_rect){x + 9, 4, w - 10, HEIGHT - 8});
     label(ui, x + 10, 5, 9, CUI_RGB(0x919eaf), title);
-    label(ui, x + 10, 16, 11, CUI_RGB(0xe5e9f0), value);
+    {
+        char fitted[256]; size_t len;
+        snprintf(fitted, sizeof fitted, "%s", value);
+        len = strlen(fitted);
+        if (cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width > w - 12) {
+            while (len > 0 && cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width +
+                   cui_measure_text(ui, CUI_FONT_MONO, 11, "...", -1).width > w - 12) {
+                do { len--; } while (len > 0 && ((unsigned char)fitted[len] & 0xc0) == 0x80);
+                fitted[len] = 0;
+            }
+            if (len + 3 < sizeof fitted) strcat(fitted, "...");
+        }
+        label(ui, x + 10, 16, 11, CUI_RGB(0xe5e9f0), fitted);
+    }
     cui_pop_clip(ui);
 }
+/* Prefer the active Wi-Fi SSID even when a wired link is also present.
+ * Keep the string intact; the drawing clip handles long and UTF-8 names. */
+static const char *network_label(const Bar *b) {
+    int i;
+    if (!b->network_available) return "--";
+    if (b->snapshot.wifi_device[0]) {
+        for (i = 0; i < b->snapshot.networks_count; i++)
+            if (b->snapshot.networks[i].active && b->snapshot.networks[i].ssid[0]) return b->snapshot.networks[i].ssid;
+        return "Connected";
+    }
+    return b->ethernet ? "Ethernet" : "Offline";
+}
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
-    Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[48];
+    Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[160];
     cui_color fg = CUI_RGB(0xe5e9f0), muted = CUI_RGB(0x919eaf), blue = CUI_RGB(0xb8cfe1), white = CUI_RGB(0xf1f4f8);
     (void)r;
     cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x090b0d), CUI_RGB(0x2d3035), 1);
@@ -697,9 +724,8 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     }
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
     dock_cell(ui, l.audio, 62, "SOUND", text, blue);
-    if (!b->network_available) strcpy(text, "--"); else if (b->ethernet) strcpy(text, "LAN");
-    else if (b->snapshot.wifi_device[0]) strcpy(text, "WIFI"); else strcpy(text, "OFF");
-    dock_cell(ui, l.network, 62, "NET", text, b->ethernet || b->snapshot.wifi_device[0] ? blue : muted);
+    dock_cell(ui, l.network, l.network_width, b->snapshot.wifi_device[0] ? "WI-FI" : "NETWORK", network_label(b),
+              b->ethernet || b->snapshot.wifi_device[0] ? blue : muted);
     if (!b->snapshot.bluetooth_available) strcpy(text, "--"); else if (!b->snapshot.bluetooth_enabled) strcpy(text, "OFF");
     else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
         if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
@@ -738,7 +764,7 @@ static void clicked(Bar *b, XButtonEvent *e) {
             if (value > 100) value = 100;
             audio_action(b, ACT_AUDIO_VOLUME, value);
         }
-    } else if (x >= l.network && x < l.network + 62) {
+    } else if (x >= l.network && x < l.network + l.network_width) {
         if (e->button == Button1) open_popup(b, 0);
         else if (e->button == Button3 && b->snapshot.wifi_available)
             audio_action(b, b->snapshot.wifi_enabled ? ACT_WIFI_OFF : ACT_WIFI_ON, 0);

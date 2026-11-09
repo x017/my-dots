@@ -27,7 +27,8 @@ run `cui-bar` manually. It refuses to steal an existing tray's selection.
 Existing autostart files are not changed. Stop an old tray/bar before testing.
 
 The bar shows temperature, CPU, memory, battery, workspace numbers, volume,
-network state, Bluetooth state, clock, XEmbed tray icons, language, and lock.
+network state and connected Wi-Fi name, Bluetooth state, clock, XEmbed tray
+icons, language, and lock. Long Wi-Fi names are shortened to fit.
 Stats and status come from /proc, /sys, nmcli, bluetoothctl, pactl and XKB.
 Service commands run in a separate worker about every two seconds (plus command
 time), and after actions, without blocking dwm or the bar's X event loop.
@@ -42,7 +43,9 @@ when space is needed. Multi-monitor support requires dwm built with Xinerama.
 Click a workspace to view it on that monitor. Click volume, network or
 Bluetooth to open the bar's integrated CUI control popup on that monitor. Click
 the clock to open its calendar, with previous, next and today controls.
-The popup can list, scan, connect and disconnect Wi-Fi and Bluetooth devices,
+The popup shows Wi-Fi networks and Bluetooth devices as separate cards; choose
+Details on a card to manage it in place. It can scan, connect and disconnect
+them,
 control radios, adjust/mute audio, and select display resolutions and refresh
 rates; Escape or Close dismisses it. Volume changes made while
 another action runs are retained and sent when the worker becomes free. Right-click
