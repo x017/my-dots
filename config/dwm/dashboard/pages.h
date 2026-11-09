@@ -34,16 +34,16 @@ static void style(cui_ctx *ui) {
     t->text_body = 13; t->heading[2] = 18;
 }
 
-/* A persistent navigation rail: the content scrolls, not these controls. */
-static void dashboard_nav(cui_ctx *ui, UIState *state) {
-    static const char *names[] = {"Home", "Wi-Fi", "BT", "Sound", "Screen"};
+/* A fixed sidebar on roomy windows, compact icon navigation on small screens. */
+static void dashboard_nav(cui_ctx *ui, UIState *state, bool compact) {
+    static const char *names[] = {"Overview", "Wi-Fi", "Bluetooth", "Sound", "Display"};
     static const char *icons[] = {CUI_ICON_LAYOUT_DASHBOARD, CUI_ICON_WIFI, CUI_ICON_LINK, CUI_ICON_VOLUME_2, CUI_ICON_MONITOR};
     static const int page[] = {4, 0, 1, 2, 3};
     int i;
-    cui_row(ui, .width = CUI_FILL, .gap = 5) {
+    cui_box(ui, .dir = compact ? CUI_ROW : CUI_COLUMN, .width = CUI_FILL, .gap = compact ? 3 : 6) {
         for (i = 0; i < 5; i++) {
             cui_id_scope(ui, names[i]) {
-                if (cui_button(ui, cui_viewport_size(ui).x < 420 ? "" : names[i], .icon = icons[i], .size = CUI_SIZE_SM,
+                if (cui_button(ui, compact ? "" : names[i], .icon = icons[i], .size = CUI_SIZE_SM,
                                .tooltip = names[i], .width = CUI_FILL, .selected = state->page == page[i])) state->page = page[i];
             }
         }
@@ -73,52 +73,63 @@ static void dashboard_home(cui_ctx *ui, UIState *state, const Snapshot *s, const
     const char *ssid = NULL; int i, connected = 0; bool wifi = s->wifi_enabled, bt = s->bluetooth_enabled;
     for (i = 0; i < s->networks_count; i++) if (s->networks[i].active) { ssid = s->networks[i].ssid; break; }
     for (i = 0; i < s->devices_count; i++) if (s->devices[i].connected) connected++;
-    cui_column(ui, .width = CUI_FILL, .gap = 4) {
-        cui_text(ui, "At a glance", .font = CUI_FONT_MEDIUM, .size = 20);
-        cui_secondary(ui, "Quick controls for your session");
+    cui_column(ui, .width = CUI_FILL, .gap = 5) {
+        cui_text(ui, "YOUR SESSION", .size = 10, .color = CUI_COLOR_INFO);
+        cui_text(ui, "Overview", .font = CUI_FONT_MEDIUM, .size = 22);
+        cui_secondary(ui, "Quick access to your everyday controls.");
     }
-    cui_box(ui, .dir = cui_viewport_size(ui).x < 360 ? CUI_COLUMN : CUI_ROW, .width = CUI_FILL, .gap = 10) {
-        cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 10) {
-            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                    cui_text(ui, "Wi-Fi", .font = CUI_FONT_MEDIUM, .size = 15);
-                    cui_text(ui, s->wifi_available ? (wifi ? "ON" : "OFF") : "UNAVAILABLE", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
-                }
-                if (cui_switch(ui, "##home-wifi", &wifi, .disabled = busy || !s->wifi_available))
-                    request_action(wifi ? ACT_WIFI_ON : ACT_WIFI_OFF, NULL, NULL, 0);
-            }
-            cui_text(ui, ssid && s->wifi_device[0] ? ssid : s->wifi_device[0] ? "Connected" : "Not connected", .size = 12);
-            if (cui_button(ui, "Networks", .icon_right = CUI_ICON_ARROW_RIGHT, .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) state->page = 0;
-        }
-        cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 10) {
-            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                    cui_text(ui, "Bluetooth", .font = CUI_FONT_MEDIUM, .size = 15);
-                    cui_text(ui, s->bluetooth_available ? (bt ? "ON" : "OFF") : "UNAVAILABLE", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
-                }
-                if (cui_switch(ui, "##home-bt", &bt, .disabled = busy || !s->bluetooth_available))
-                    request_action(bt ? ACT_BT_ON : ACT_BT_OFF, NULL, NULL, 0);
-            }
-            if (s->connected_known) cui_textf(ui, "%d connected", connected);
-            else cui_text(ui, "Status unavailable", .size = 12);
-            if (cui_button(ui, "Devices", .icon_right = CUI_ICON_ARROW_RIGHT, .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) state->page = 1;
-        }
-    }
-    cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 10) {
-        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-            cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                cui_text(ui, "Sound", .font = CUI_FONT_MEDIUM, .size = 15);
+    /* One prominent, always-visible audio control instead of a grid of tiles. */
+    cui_card(ui, .width = CUI_FILL, .pad = 15, .gap = 9) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            cui_text(ui, CUI_ICON_VOLUME_2, .font = CUI_FONT_ICONS, .size = 18, .color = CUI_COLOR_INFO);
+            cui_column(ui, .width = CUI_FILL, .gap = 2) {
+                cui_text(ui, "Sound output", .font = CUI_FONT_MEDIUM, .size = 15);
                 cui_secondary(ui, s->audio_available ? (s->muted ? "Muted" : "Default output") : "Audio unavailable");
             }
             if (cui_button(ui, s->muted ? "Unmute" : "Mute", .size = CUI_SIZE_SM, .disabled = busy || !s->audio_available))
                 request_action(ACT_AUDIO_MUTE, NULL, NULL, 0);
         }
         volume_control(ui, state, s, busy);
+        if (cui_button(ui, "Sound settings", .icon_right = CUI_ICON_ARROW_RIGHT, .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) state->page = 2;
     }
-    cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 8) {
-        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 10) {
-            cui_column(ui, .width = CUI_FILL, .gap = 4) {
-                cui_text(ui, "Displays", .font = CUI_FONT_MEDIUM, .size = 15);
+    cui_column(ui, .width = CUI_FILL, .gap = 4) {
+        cui_text(ui, "CONNECTIONS", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+    }
+    cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 10) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            cui_text(ui, CUI_ICON_WIFI, .font = CUI_FONT_ICONS, .size = 18, .color = CUI_COLOR_INFO);
+            cui_column(ui, .width = CUI_FILL, .gap = 2) {
+                cui_text(ui, "Wi-Fi", .font = CUI_FONT_MEDIUM, .size = 14);
+                cui_text(ui, !s->wifi_available ? "Unavailable" : !wifi ? "Off" : ssid && s->wifi_device[0] ? ssid : s->wifi_device[0] ? "Connected" : "Not connected", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+            if (cui_switch(ui, "##home-wifi", &wifi, .disabled = busy || !s->wifi_available))
+                request_action(wifi ? ACT_WIFI_ON : ACT_WIFI_OFF, NULL, NULL, 0);
+            cui_id_scope(ui, "home-networks") {
+                if (cui_button(ui, "", .icon = CUI_ICON_ARROW_RIGHT, .tooltip = "Networks", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) state->page = 0;
+            }
+        }
+        cui_separator(ui);
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            cui_text(ui, CUI_ICON_LINK, .font = CUI_FONT_ICONS, .size = 18, .color = CUI_COLOR_INFO);
+            cui_column(ui, .width = CUI_FILL, .gap = 2) {
+                cui_text(ui, "Bluetooth", .font = CUI_FONT_MEDIUM, .size = 14);
+                if (!s->bluetooth_available) cui_secondary(ui, "Unavailable");
+                else if (!bt) cui_secondary(ui, "Off");
+                else if (s->connected_known) cui_textf(ui, "%d connected", connected);
+                else cui_secondary(ui, "Status unavailable");
+            }
+            if (cui_switch(ui, "##home-bt", &bt, .disabled = busy || !s->bluetooth_available))
+                request_action(bt ? ACT_BT_ON : ACT_BT_OFF, NULL, NULL, 0);
+            cui_id_scope(ui, "home-devices") {
+                if (cui_button(ui, "", .icon = CUI_ICON_ARROW_RIGHT, .tooltip = "Devices", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) state->page = 1;
+            }
+        }
+    }
+    cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 8) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            cui_text(ui, CUI_ICON_MONITOR, .font = CUI_FONT_ICONS, .size = 18, .color = CUI_COLOR_INFO);
+            cui_column(ui, .width = CUI_FILL, .gap = 2) {
+                cui_text(ui, "Displays", .font = CUI_FONT_MEDIUM, .size = 14);
                 if (d->xrandr_available) cui_textf(ui, "%d connected", d->output_count);
                 else cui_secondary(ui, "Display service unavailable");
             }
@@ -274,3 +285,41 @@ static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy
 }
 
 #include "desktop_pages.h"
+
+/* Shared shell keeps the bar popup and the optional CUI dashboard identical. */
+static bool dashboard_shell(cui_ctx *ui, UIState *state, const Snapshot *s, const DesktopState *d, bool busy) {
+    static const char *scroll_ids[] = {"controls-wifi", "controls-bluetooth", "controls-sound", "controls-display", "controls-home"};
+    bool close = false, compact = cui_viewport_size(ui).x < 450;
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 14, .gap = 10) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 10) {
+            cui_column(ui, .width = CUI_FILL, .gap = 2) {
+                cui_text(ui, "CONTROL CENTER", .font = CUI_FONT_MEDIUM, .size = 13);
+                cui_text(ui, "Your desktop, in one place", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+            if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) close = true;
+        }
+        volume_flush(ui, state, busy);
+        if (compact) dashboard_nav(ui, state, true);
+        cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
+            if (!compact) {
+                cui_column(ui, .width = CUI_PX(124), .height = CUI_FILL, .pad = 8, .gap = 10,
+                           .bg = CUI_RGB(0x121417), .border = 1, .border_color = CUI_RGB(0x1e2025), .radius = 10) {
+                    cui_text(ui, "SECTIONS", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+                    dashboard_nav(ui, state, false);
+                    cui_spacer(ui);
+                    cui_text(ui, "DWM / SESSION", .size = 9, .color = CUI_COLOR_TEXT_SECONDARY);
+                }
+            }
+            cui_scroll(ui, .id = scroll_ids[state->page], .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
+                if (busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
+                else if (s->message[0]) cui_text(ui, s->message, .color = CUI_COLOR_TEXT_SECONDARY);
+                if (state->page == 0) wifi_page(ui, state, s, busy);
+                else if (state->page == 1) bluetooth_page(ui, state, s, busy);
+                else if (state->page == 2) audio_page(ui, state, s, busy);
+                else if (state->page == 3) display_page(ui, state, d, busy);
+                else dashboard_home(ui, state, s, d, busy);
+            }
+        }
+    }
+    return close;
+}

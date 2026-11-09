@@ -47,9 +47,9 @@ when space is needed. Multi-monitor support requires dwm built with Xinerama.
 Click a workspace to view it on that monitor. Click volume, network or
 Bluetooth to open the bar's integrated CUI control popup on that monitor. Click
 the clock to open its calendar, with previous, next and today controls.
-The popup has a Home overview with Wi-Fi and Bluetooth switches, a volume
-slider, and a display shortcut. Its pinned navigation keeps each section within
-reach while scrolling. Wi-Fi networks and Bluetooth devices have separate
+The popup has an Overview with a prominent volume control, Wi-Fi and Bluetooth
+switches, and a display shortcut. A fixed section sidebar keeps navigation
+within reach while the content scrolls; narrow windows use an icon toolbar. Wi-Fi networks and Bluetooth devices have separate
 cards; choose Details on a card to manage it in place. It can scan, connect and disconnect
 them,
 control radios, adjust/mute audio, and select display resolutions and refresh

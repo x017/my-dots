@@ -137,7 +137,6 @@ int main(void) {
     cui_app *app;
     cui_ctx *ui;
     UIState state = { .page = 4 };
-    static const char *scroll_ids[] = {"wifi", "bluetooth", "sound", "display", "home"};
     signal(SIGPIPE, SIG_IGN);
     app = cui_app_create(&(cui_app_desc){ .title = "Dwm Control Center", .width = 760, .height = 700,
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
@@ -154,27 +153,7 @@ int main(void) {
         pthread_mutex_unlock(&backend.mutex);
         cui_request_wakeup(ui, 0.25f);
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) cui_app_quit(app);
-        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 22, .gap = 14) {
-            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                    cui_text(ui, "Control center", .font = CUI_FONT_MEDIUM, .size = 18);
-                    cui_text(ui, "Connections  /  Sound  /  Display", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
-                }
-                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) cui_app_quit(app);
-            }
-            volume_flush(ui, &state, busy);
-            dashboard_nav(ui, &state);
-            cui_separator(ui);
-            cui_scroll(ui, .id = scroll_ids[state.page], .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
-                if (busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
-                else if (snapshot.message[0]) cui_text(ui, snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
-                if (state.page == 0) wifi_page(ui, &state, &snapshot, busy);
-                else if (state.page == 1) bluetooth_page(ui, &state, &snapshot, busy);
-                else if (state.page == 2) audio_page(ui, &state, &snapshot, busy);
-                else if (state.page == 3) display_page(ui, &state, &desktop, busy);
-                else dashboard_home(ui, &state, &snapshot, &desktop, busy);
-            }
-        }
+        if (dashboard_shell(ui, &state, &snapshot, &desktop, busy)) cui_app_quit(app);
     }
     pthread_mutex_lock(&backend.mutex);
     backend.stopping = 1; pthread_cond_signal(&backend.wake);
