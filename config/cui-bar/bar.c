@@ -545,7 +545,7 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
 static int draw_popup(Bar *b) {
     XImage *image;
     cui_ctx *ui = b->popup_ui;
-    static const char *scroll_ids[] = {"controls-wifi", "controls-bluetooth", "controls-sound", "controls-display"};
+    static const char *scroll_ids[] = {"controls-wifi", "controls-bluetooth", "controls-sound", "controls-display", "controls-home"};
     if (!b->popup || !ui) return 1;
     image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
                          ZPixmap, 0, NULL, b->popup_width, b->popup_height, 32, 0);
@@ -573,6 +573,7 @@ static int draw_popup(Bar *b) {
                 }
                 if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
             }
+            volume_flush(ui, &popup_state, b->worker_busy);
             dashboard_nav(ui, &popup_state);
             cui_separator(ui);
             cui_scroll(ui, .id = scroll_ids[popup_state.page], .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
@@ -581,7 +582,8 @@ static int draw_popup(Bar *b) {
                 if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
                 else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
                 else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-                else display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+                else if (popup_state.page == 3) display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+                else dashboard_home(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy);
             }
         }
     }

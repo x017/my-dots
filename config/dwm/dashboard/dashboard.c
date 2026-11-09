@@ -136,8 +136,8 @@ int main(void) {
 #endif
     cui_app *app;
     cui_ctx *ui;
-    UIState state = {0};
-    static const char *scroll_ids[] = {"wifi", "bluetooth", "sound", "display"};
+    UIState state = { .page = 4 };
+    static const char *scroll_ids[] = {"wifi", "bluetooth", "sound", "display", "home"};
     signal(SIGPIPE, SIG_IGN);
     app = cui_app_create(&(cui_app_desc){ .title = "Dwm Control Center", .width = 760, .height = 700,
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
@@ -162,6 +162,7 @@ int main(void) {
                 }
                 if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) cui_app_quit(app);
             }
+            volume_flush(ui, &state, busy);
             dashboard_nav(ui, &state);
             cui_separator(ui);
             cui_scroll(ui, .id = scroll_ids[state.page], .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
@@ -170,7 +171,8 @@ int main(void) {
                 if (state.page == 0) wifi_page(ui, &state, &snapshot, busy);
                 else if (state.page == 1) bluetooth_page(ui, &state, &snapshot, busy);
                 else if (state.page == 2) audio_page(ui, &state, &snapshot, busy);
-                else display_page(ui, &state, &desktop, busy);
+                else if (state.page == 3) display_page(ui, &state, &desktop, busy);
+                else dashboard_home(ui, &state, &snapshot, &desktop, busy);
             }
         }
     }
