@@ -3,7 +3,11 @@
 /* appearance */
 static const unsigned int borderpx = 1; /* border pixel of windows */
 static const unsigned int snap = 32;    /* snap pixel */
-static const int showbar = 0;           /* 0 means no bar */
+#ifdef DWM_CUI
+static const int showbar = 1;           /* CUI bar enabled on CUI builds */
+#else
+static const int showbar = 0;           /* original default without CUI */
+#endif
 static const int topbar = 1;            /* 0 means bottom bar */
 static const int startwithgaps = 1;     /* 1 means gaps are used by default */
 static const unsigned int gappx =

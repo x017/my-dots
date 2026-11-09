@@ -109,16 +109,13 @@ This is a one-shot command, not a second window manager. Run it after your
 xrandr positioning command and before restoring the wallpaper. xrandr must be
 installed and dwm must be on PATH; failures are printed to the session log.
 
-Win+Space now changes the XKB group directly in dwm; it no longer depends on
-`kb-lay-switch`. Configure both layouts once in autostart with:
-
-    setxkbmap -layout us,ir -option ''
-
-Remove the old `-option grp:win_space_toggle` line: binding the same key in
-both XKB and dwm can cause conflicting or double toggles. `-option ''` clears
-other XKB options too; add back any unrelated options you need. The layouts
-can be changed in that command. This requires setxkbmap and XKB; restart dwm
-after rebuilding and updating autostart.
+Win+Space switches the XKB keyboard group. If your existing XKB options
+include `grp:win_space_toggle`, dwm leaves that shortcut to XKB; otherwise
+dwm handles it directly. It watches for keyboard configuration changes and
+does not edit existing autostart files or clear your other XKB options.
+Both layouts must already be configured; the generated autostart sets
+`us,ir` on a fresh setup. Existing autostart files are left untouched. If
+you use different layouts, keep configuring them as you already do.
 
 Your old hard-coded `feh --bg-fill ...` autostart line resets the wallpaper
 on every login. Replace it rather than adding another feh command beside it:
@@ -205,3 +202,19 @@ a font file. Its optional settings buttons launch nm-connection-editor,
 blueman-manager, and pavucontrol when installed. The standalone CUI build
 remains available for independent testing, but is not needed by the binding.
 Existing autostart files are not changed.
+
+CUI bar
+-------
+The CUI=1 build also enables a CUI bar in dwm's own bar windows. It shows
+numbered tags (highlighted when selected), the layout, focused window title,
+and the existing X root-window status text on the selected monitor. The
+existing system tray is retained. Tag mouse bindings work as before; a left
+click on the status area opens the native control center. Alt+B toggles the
+bar. A status provider is still needed for a clock or system information;
+the bar does not spawn one or poll services itself. Status2d formatting is
+stripped rather than rendered by CUI.
+
+The bar draws only when dwm requests a redraw, using one single-threaded CUI
+software renderer shared across monitors. There is no bar daemon, GPU loop,
+or periodic redraw. On unsupported X11 pixel formats it falls back to dwm's
+original bar. Building without CUI=1 keeps the original bar default (hidden).

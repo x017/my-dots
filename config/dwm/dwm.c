@@ -54,6 +54,10 @@
 
 #include "drw.h"
 #include "util.h"
+#ifdef DWM_CUI
+#include <cui/cui.h>
+#include <cui/cui_render.h>
+#endif
 
 /* macros */
 #define BUTTONMASK (ButtonPressMask | ButtonReleaseMask)
@@ -188,6 +192,9 @@ struct Monitor {
   Client *stack;
   Monitor *next;
   Window barwin;
+#ifdef DWM_CUI
+  int cuibar;
+#endif
   const Layout *lt[2];
 };
 
@@ -337,7 +344,17 @@ static int sw, sh; /* X display screen geometry width, height */
 static int bh;     /* bar height */
 static int lrpad;  /* sum of left and right padding for text */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
+#ifdef DWM_CUI
+#define CUI_BAR_PAD 8
+#define CUI_BAR_TAG_WIDTH 30
+#define CUI_BAR_LAYOUT_WIDTH 48
+static int cuibarwidth(Monitor *m);
+static int cuibarstatuswidth(Monitor *m);
+static cui_ctx *bar_ui;
+static cui_sw_renderer *bar_renderer;
+#endif
 static unsigned int numlockmask = 0;
+static Atom xkbrules;
 static void (*handler[LASTEvent])(XEvent *) = {
     [ButtonPress] = buttonpress,
     [ClientMessage] = clientmessage,
@@ -426,7 +443,8 @@ switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
 }
 
 /* Switch the XKB group directly; unlike an external helper this does not
- * race an XKB grp:win_space_toggle binding for the same key. */
+ * race an XKB grp:win_space_toggle binding for the same key. grabkeys()
+ * lets XKB handle the shortcut when that option is already configured. */
 void togglekeyboardgroup(const Arg *arg) {
   XkbStateRec state;
   (void)arg;
@@ -1545,6 +1563,21 @@ void buttonpress(XEvent *e) {
     focus(NULL);
   }
   if (ev->window == selmon->barwin) {
+#ifdef DWM_CUI
+    if (selmon->cuibar) {
+      int tag_end = CUI_BAR_PAD + LENGTH(tags) * CUI_BAR_TAG_WIDTH;
+      if (ev->x >= CUI_BAR_PAD && ev->x < tag_end) {
+        click = ClkTagBar;
+        arg.ui = 1u << ((ev->x - CUI_BAR_PAD) / CUI_BAR_TAG_WIDTH);
+      } else if (ev->x >= tag_end && ev->x < tag_end + CUI_BAR_LAYOUT_WIDTH)
+        click = ClkLtSymbol;
+      else if (cuibarstatuswidth(selmon) && ev->x >= cuibarwidth(selmon) - CUI_BAR_PAD - cuibarstatuswidth(selmon)) {
+        if (ev->button == Button1 && CLEANMASK(ev->state) == 0) { dashboardnative(NULL); return; }
+        click = ClkStatusText;
+      } else click = ClkWinTitle;
+    } else
+#endif
+    {
     i = x = 0;
     for (c = selmon->clients; c; c = c->next)
       occ |= c->tags == TAGMASK ? 0 : c->tags;
@@ -1564,6 +1597,7 @@ void buttonpress(XEvent *e) {
       click = ClkStatusText;
     else
       click = ClkWinTitle;
+    }
   } else if ((c = wintoclient(ev->window))) {
     focus(c);
     restack(selmon);
@@ -1613,6 +1647,10 @@ void cleanup(void) {
   free(scheme);
   XDestroyWindow(dpy, wmcheckwin);
   drw_free(drw);
+#ifdef DWM_CUI
+  if (bar_ui) cui_destroy(bar_ui);
+  if (bar_renderer) cui_sw_destroy(bar_renderer);
+#endif
   XSync(dpy, False);
   XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
   XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
@@ -1639,7 +1677,7 @@ void clientmessage(XEvent *e) {
   XClientMessageEvent *cme = &e->xclient;
   Client *c = wintoclient(cme->window);
 
-  if (showsystray && cme->window == systray->win &&
+  if (showsystray && systray && cme->window == systray->win &&
       cme->message_type == netatom[NetSystemTrayOP]) {
     /* add systray icons */
     if (cme->data.l[1] == SYSTEM_TRAY_REQUEST_DOCK) {
@@ -1981,6 +2019,105 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
   return ret;
 }
 
+#ifdef DWM_CUI
+static int
+cuibarwidth(Monitor *m)
+{
+  int tray = showsystray && m == systraytomon(m) && !systrayonleft ? (int)getsystraywidth() : 0;
+  return MAX(1, m->ww - tray);
+}
+
+static int
+cuibarstatuswidth(Monitor *m)
+{
+  int width = cuibarwidth(m);
+  int left = 2 * CUI_BAR_PAD + LENGTH(tags) * CUI_BAR_TAG_WIDTH + CUI_BAR_LAYOUT_WIDTH;
+  return m == selmon ? MAX(0, MIN(240, width - left - 80)) : 0;
+}
+
+static int
+cuibardraw(Monitor *m)
+{
+  XImage *image;
+  unsigned int i, occupied = 0, urgent = 0;
+  int width = cuibarwidth(m), statuswidth = cuibarstatuswidth(m), in_markup = 0;
+  char number[8], status[sizeof stext];
+  size_t j, used = 0;
+  Client *c;
+  cui_theme *theme;
+  cui_renderer_iface iface;
+  if (!bar_renderer) {
+    bar_renderer = cui_sw_create();
+    if (!bar_renderer) return 0;
+    cui_sw_set_threads(bar_renderer, 1);
+    iface = cui_sw_iface(bar_renderer);
+    bar_ui = cui_create(&(cui_ctx_desc){ .renderer = iface, .theme = CUI_THEME_DARK });
+    if (!bar_ui) { cui_sw_destroy(bar_renderer); bar_renderer = NULL; return 0; }
+    cui_font_set_role(bar_ui, CUI_FONT_BODY, CUI_FONT_MONO);
+    theme = cui_theme_get(bar_ui);
+    theme->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x090b0d);
+    theme->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xadbac7);
+  }
+  /* The software renderer's BGRA format matches common 24-bit X11 visuals.
+   * On other visuals, keep the original bar instead of corrupting colors. */
+  image = XCreateImage(dpy, DefaultVisual(dpy, screen), DefaultDepth(dpy, screen),
+                       ZPixmap, 0, NULL, width, bh, 32, 0);
+  if (!image) return 0;
+  if (image->bits_per_pixel != 32 || image->byte_order != LSBFirst ||
+      image->red_mask != 0xff0000 || image->green_mask != 0xff00 || image->blue_mask != 0xff) {
+    XDestroyImage(image); return 0;
+  }
+  image->data = calloc((size_t)image->bytes_per_line, (size_t)bh);
+  if (!image->data) { XDestroyImage(image); return 0; }
+  for (c = m->clients; c; c = c->next) {
+    occupied |= c->tags == TAGMASK ? 0 : c->tags;
+    if (c->isurgent) urgent |= c->tags;
+  }
+  /* status2d escape sequences are for the old renderer; omit them in CUI. */
+  for (j = 0; stext[j] && used + 1 < sizeof status; j++) {
+    unsigned char ch = (unsigned char)stext[j];
+    if (ch == '^') { in_markup = !in_markup; continue; }
+    if (!in_markup && ch >= 32 && ch != 127) status[used++] = (char)ch;
+  }
+  status[used] = '\0';
+  cui_set_viewport(bar_ui, (float)width, (float)bh, 1.0f);
+  cui_begin_frame(bar_ui, 0.016f);
+  cui_row(bar_ui, .width = CUI_FILL, .height = CUI_FILL, .pad_x = CUI_BAR_PAD,
+          .gap = 0, .align = CUI_ALIGN_CENTER, .bg = CUI_RGB(0x090b0d), .clip = true) {
+    for (i = 0; i < LENGTH(tags); i++) {
+      int active = !!(m->tagset[m->seltags] & (1u << i));
+      cui_color bg = active ? CUI_RGB(0x2d3035) : CUI_RGB(0x090b0d);
+      cui_color fg = urgent & (1u << i) ? CUI_RGB(0xb86a6a) : active ? CUI_RGB(0xf2d49e) :
+                     occupied & (1u << i) ? CUI_RGB(0xadbac7) : CUI_RGB(0x64778d);
+      snprintf(number, sizeof number, "%u", i + 1);
+      cui_column(bar_ui, .width = CUI_PX(CUI_BAR_TAG_WIDTH), .height = CUI_PX(26),
+                 .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER, .bg = bg, .radius = 6) {
+        cui_text(bar_ui, number, .font = CUI_FONT_MONO, .size = 12, .color = fg);
+      }
+    }
+    cui_column(bar_ui, .width = CUI_PX(CUI_BAR_LAYOUT_WIDTH), .height = CUI_FILL,
+               .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER) {
+      cui_text(bar_ui, m->ltsymbol, .font = CUI_FONT_MONO, .size = 12, .color = CUI_RGB(0x7fa8c9));
+    }
+    cui_column(bar_ui, .width = CUI_FILL, .height = CUI_FILL, .justify = CUI_JUSTIFY_CENTER, .clip = true) {
+      cui_text(bar_ui, m->sel ? m->sel->name : "Desktop", .font = CUI_FONT_MONO,
+               .size = 12, .color = CUI_RGB(0x8a949e), .width = CUI_FILL, .nowrap = true);
+    }
+    if (statuswidth > 0) {
+      cui_column(bar_ui, .width = CUI_PX(statuswidth), .height = CUI_FILL, .justify = CUI_JUSTIFY_CENTER, .clip = true) {
+        cui_text(bar_ui, status, .font = CUI_FONT_MONO, .size = 12, .color = CUI_RGB(0xadbac7),
+                 .width = CUI_FILL, .nowrap = true, .align = CUI_TEXT_RIGHT);
+      }
+    }
+  }
+  cui_end_frame(bar_ui);
+  cui_sw_render(bar_renderer, cui_get_draw_data(bar_ui), image->data, width, bh, image->bytes_per_line, CUI_SW_BGRA);
+  XPutImage(dpy, m->barwin, drw->gc, image, 0, 0, 0, 0, width, bh);
+  XDestroyImage(image);
+  return 1;
+}
+#endif
+
 void drawbar(Monitor *m) {
   int x, w, tw = 0, stw = 0;
   int boxs = drw->fonts->h / 9;
@@ -1990,6 +2127,10 @@ void drawbar(Monitor *m) {
 
   if (!m->showbar)
     return;
+#ifdef DWM_CUI
+  resizebarwin(m);
+  if ((m->cuibar = cuibardraw(m))) return;
+#endif
 
   if (showsystray && m == systraytomon(m) && !systrayonleft)
     stw = getsystraywidth();
@@ -2254,7 +2395,7 @@ long getstate(Window w) {
 unsigned int getsystraywidth() {
   unsigned int w = 0;
   Client *i;
-  if (showsystray)
+  if (showsystray && systray)
     for (i = systray->icons; i; w += i->w + systrayspacing, i = i->next)
       ;
   return w ? w + systrayspacing : 1;
@@ -2301,13 +2442,52 @@ void grabbuttons(Client *c, int focused) {
   }
 }
 
+/* setxkbmap publishes five NUL-separated strings on the root window. If
+ * XKB already owns Win+Space, leave the key ungrabbed so it cannot toggle
+ * twice. No existing keyboard options or startup files are modified. */
+static int
+xkbwinspaceoption(const unsigned char *data, size_t length)
+{
+  size_t start = 0, end;
+  int field;
+  for (field = 0; field < 4; field++) {
+    while (start < length && data[start]) start++;
+    if (start == length) return 0;
+    start++;
+  }
+  while (start < length && data[start]) {
+    end = start;
+    while (end < length && data[end] && data[end] != ',') end++;
+    if (end - start == sizeof("grp:win_space_toggle") - 1 &&
+        !memcmp(data + start, "grp:win_space_toggle", end - start)) return 1;
+    if (end == length || !data[end]) break;
+    start = end + 1;
+  }
+  return 0;
+}
+
+static int
+xkbownswinspace(void)
+{
+  Atom actual;
+  int format, found = 0;
+  unsigned long nitems, remaining;
+  unsigned char *data = NULL;
+  if (XGetWindowProperty(dpy, root, xkbrules, 0, 4096, False, XA_STRING,
+                         &actual, &format, &nitems, &remaining, &data) == Success &&
+      actual == XA_STRING && format == 8 && data)
+    found = xkbwinspaceoption(data, nitems);
+  if (data) XFree(data);
+  return found;
+}
+
 void grabkeys(void) {
   updatenumlockmask();
   {
     unsigned int i, j, k;
     unsigned int modifiers[] = {0, LockMask, numlockmask,
                                 numlockmask | LockMask};
-    int start, end, skip;
+    int start, end, skip, xkb_owns_win_space = xkbownswinspace();
     KeySym *syms;
 
     XUngrabKey(dpy, AnyKey, AnyModifier, root);
@@ -2318,7 +2498,8 @@ void grabkeys(void) {
     for (k = start; k <= end; k++)
       for (i = 0; i < LENGTH(keys); i++)
         /* skip modifier codes, we do that ourselves */
-        if (keys[i].keysym == syms[(k - start) * skip])
+        if (!(xkb_owns_win_space && keys[i].func == togglekeyboardgroup) &&
+            keys[i].keysym == syms[(k - start) * skip])
           for (j = 0; j < LENGTH(modifiers); j++)
             XGrabKey(dpy, k, keys[i].mod | modifiers[j], root, True,
                      GrabModeAsync, GrabModeAsync);
@@ -2442,7 +2623,7 @@ void mappingnotify(XEvent *e) {
   XMappingEvent *ev = &e->xmapping;
 
   XRefreshKeyboardMapping(ev);
-  if (ev->request == MappingKeyboard)
+  if (ev->request == MappingKeyboard || ev->request == MappingModifier)
     grabkeys();
 }
 
@@ -2581,6 +2762,10 @@ void propertynotify(XEvent *e) {
     updatesystray();
   }
 
+  if (ev->window == root && ev->atom == xkbrules) {
+    grabkeys();
+    return;
+  }
   if ((ev->window == root) && (ev->atom == XA_WM_NAME))
     updatestatus();
   else if (ev->state == PropertyDelete)
@@ -2892,7 +3077,7 @@ void runautostart(void) {
       "command -v feh >/dev/null 2>&1; then\n"
       "    feh --bg-fill \"$HOME/Downloads/wallpaper/glassmorphsesimjapon.png\" &\nfi\n"
       "if command -v setxkbmap >/dev/null 2>&1; then "
-      "setxkbmap -layout us,ir -option ''; fi\n";
+      "setxkbmap -layout us,ir; fi\n";
   const char *home = getenv("HOME"), *xdg = getenv("XDG_DATA_HOME");
   const char *wallpaper = getenv("DWM_WALLPAPERS_DIR");
   char xdgdir[PATH_MAX], legacy[PATH_MAX], path[PATH_MAX], configdir[PATH_MAX], configpath[PATH_MAX];
@@ -3123,8 +3308,12 @@ void setup(void) {
     die("no fonts could be loaded.");
   lrpad = drw->fonts->h;
   bh = drw->fonts->h + 2;
+#ifdef DWM_CUI
+  bh = MAX(bh, 36);
+#endif
   updategeom();
   /* init atoms */
+  xkbrules = XInternAtom(dpy, "_XKB_RULES_NAMES", False);
   utf8string = XInternAtom(dpy, "UTF8_STRING", False);
   wmatom[WMProtocols] = XInternAtom(dpy, "WM_PROTOCOLS", False);
   wmatom[WMDelete] = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
@@ -3303,15 +3492,9 @@ void togglebar(const Arg *arg) {
   selmon->showbar = !selmon->showbar;
   updatebarpos(selmon);
   resizebarwin(selmon);
-  if (showsystray) {
+  if (showsystray && systray && selmon == systraytomon(selmon)) {
     XWindowChanges wc;
-    if (!selmon->showbar)
-      wc.y = -bh;
-    else if (selmon->showbar) {
-      wc.y = 0;
-      if (!selmon->topbar)
-        wc.y = selmon->mh - bh;
-    }
+    wc.y = selmon->by;
     XConfigureWindow(dpy, systray->win, CWY, &wc);
   }
   arrange(selmon);
@@ -3423,7 +3606,7 @@ void updatebars(void) {
         CopyFromParent, DefaultVisual(dpy, screen),
         CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa);
     XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
-    if (showsystray && m == systraytomon(m))
+    if (showsystray && systray && m == systraytomon(m))
       XMapRaised(dpy, systray->win);
     XMapRaised(dpy, m->barwin);
     XSetClassHint(dpy, m->barwin, &ch);
@@ -3768,7 +3951,7 @@ Client *wintoclient(Window w) {
 Client *wintosystrayicon(Window w) {
   Client *i = NULL;
 
-  if (!showsystray || !w)
+  if (!showsystray || !systray || !w)
     return i;
   for (i = systray->icons; i && i->win != w; i = i->next)
     ;

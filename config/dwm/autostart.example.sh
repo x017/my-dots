@@ -12,5 +12,6 @@ elif [ -f "$HOME/Downloads/wallpaper/glassmorphsesimjapon.png" ]; then
     feh --bg-fill "$HOME/Downloads/wallpaper/glassmorphsesimjapon.png" &
 fi
 
-# dwm itself handles Win+Space. Do not also set grp:win_space_toggle.
-setxkbmap -layout us,ir -option ''
+# dwm uses the existing XKB Win+Space option when configured; otherwise
+# it switches groups itself. Other keyboard options are left unchanged.
+setxkbmap -layout us,ir
