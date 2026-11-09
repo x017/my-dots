@@ -543,9 +543,9 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
     }
 }
 static int draw_popup(Bar *b) {
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display"};
     XImage *image;
     cui_ctx *ui = b->popup_ui;
+    static const char *scroll_ids[] = {"controls-wifi", "controls-bluetooth", "controls-sound", "controls-display"};
     if (!b->popup || !ui) return 1;
     image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
                          ZPixmap, 0, NULL, b->popup_width, b->popup_height, 32, 0);
@@ -565,21 +565,24 @@ static int draw_popup(Bar *b) {
             }
         }
     } else {
-        cui_scroll(ui, .id = "controls", .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 12) {
+        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 14) {
             cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
                 cui_column(ui, .width = CUI_FILL, .gap = 3) {
                     cui_text(ui, "Control center", .font = CUI_FONT_MEDIUM, .size = 18);
-                    cui_text(ui, "Your connections and devices, in one place", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+                    cui_text(ui, "Connections  /  Sound  /  Display", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
                 }
-                if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
             }
-            cui_segmented(ui, "pages", pages, 4, &popup_state.page, .full_width = true);
-            if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
-            else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
-            if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-            else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-            else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-            else display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+            dashboard_nav(ui, &popup_state);
+            cui_separator(ui);
+            cui_scroll(ui, .id = scroll_ids[popup_state.page], .width = CUI_FILL, .height = CUI_FILL, .gap = 12) {
+                if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
+                else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
+                if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+                else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+                else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+                else display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+            }
         }
     }
     cui_end_frame(ui);

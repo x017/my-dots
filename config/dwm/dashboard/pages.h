@@ -6,31 +6,47 @@ typedef struct {
     int page, initialized_volume, volume_pending;
 } UIState;
 
+/* Match the native Alt+Tab switcher palette in dwm.c. */
 static void style(cui_ctx *ui) {
     cui_theme *t = cui_theme_get(ui);
-    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x10131a);
-    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x191e27);
-    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x222936);
-    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x191e27);
-    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xe5e9f0);
-    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0xb6c0cf);
-    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x919eaf);
-    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x2a323e);
-    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x2a323e);
-    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x3a4655);
-    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf1f4f8);
-    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf1f4f8);
-    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x3a4655);
-    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x10131a);
-    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0xb8cfe1);
-    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x10131a);
-    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x10131a);
-    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xd8aeb5);
-    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0xb8cfe1);
-    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x222936);
-    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0xb8cfe1);
+    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x090b0d);
+    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x121417);
+    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x181a1e);
+    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x121417);
+    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xadbac7);
+    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0x8a949e);
+    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x64778d);
+    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x1e2025);
+    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x1e2025);
+    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x2d3035);
+    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf2d49e);
+    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf2d49e);
+    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x2d3035);
+    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x090b0d);
+    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0x7fa8c9);
+    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x090b0d);
+    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x090b0d);
+    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xb86a6a);
+    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0x7fa8c9);
+    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x181a1e);
+    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0x7fa8c9);
     t->radius_control = 8; t->radius_panel = 12; t->radius_surface = 12;
     t->text_body = 13; t->heading[2] = 18;
+}
+
+/* A persistent navigation rail: the content scrolls, not these controls. */
+static void dashboard_nav(cui_ctx *ui, UIState *state) {
+    static const char *names[] = {"Wi-Fi", "Devices", "Sound", "Display"};
+    static const char *icons[] = {CUI_ICON_WIFI, CUI_ICON_LINK, CUI_ICON_VOLUME_2, CUI_ICON_MONITOR};
+    int i;
+    cui_row(ui, .width = CUI_FILL, .gap = 6) {
+        for (i = 0; i < 4; i++) {
+            cui_id_scope(ui, names[i]) {
+                if (cui_button(ui, names[i], .icon = icons[i], .size = CUI_SIZE_SM,
+                               .width = CUI_FILL, .selected = state->page == i)) state->page = i;
+            }
+        }
+    }
 }
 
 /* Each device is its own card, with actions next to the selected item. */
