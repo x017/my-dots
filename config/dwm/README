@@ -140,25 +140,27 @@ cancellable helper and transfers a scaled preview back to dwm. Moving through
 high-resolution files should not block the dwm event loop; applying via feh
 can still take a few seconds for large images.
 
-Automatic external setup
-------------------------
-After copying this configuration, run:
+Automatic first-run setup
+-------------------------
+On startup, dwm creates missing files itself; no setup script is needed. It
+chooses $XDG_DATA_HOME/dwm (or ~/.local/share/dwm), falling back to ~/.dwm
+if the XDG directory does not exist and ~/.dwm already exists. If neither
+exists it creates the XDG directory. Within that directory it creates an
+executable autostart.sh with the monitor, saved-mode, wallpaper, network
+applet and keyboard setup shown in autostart.example.sh, and an empty
+executable autostart_blocking.sh for optional blocking commands. It also
+creates an empty ${XDG_CONFIG_HOME:-$HOME/.config}/refreshrate.conf and the
+default ~/Downloads/wallpaper directory if they do not exist. If
+DWM_WALLPAPERS_DIR is set, the custom directory is not created automatically.
 
-    ~/.config/dwm/setup-external.sh
-
-The script configures the dwm autostart file, matching dwm's XDG_DATA_HOME
-(or ~/.local/share/dwm, then ~/.dwm) directory selection. It backs up an
-existing file, preserves unrelated startup lines, and replaces the exact
-wallpaper, monitor, refreshmenu, network-applet and keyboard lines shown in
-the example above. It installs a managed block that restores saved display
-modes, restores ~/.fehbg after monitor setup (using your old wallpaper as a
-fallback), starts nm-applet, and configures the two XKB groups. It is safe to
-run again. For safety it stops without changing anything if it finds an
-unrecognised conflicting wallpaper, display or keyboard command; resolve
-those lines manually and rerun. The eDP-1/HDMI-1 arrangement in the block is
-applied only when both outputs are connected.
-
-The script does not install packages, build dwm, or change your login command.
-Install the required programs and rebuild/install dwm separately, then restart
-the session. The switchers create ~/.fehbg and refreshrate.conf when choices
-are successfully applied; the setup script does not overwrite those files.
+Existing files, symlinks, directories and permissions are never overwritten
+or changed by first-run setup, including non-executable autostart files.
+Existing executable autostart scripts continue to run as before. If an
+existing autostart still contains the old hard-coded feh command or the XKB
+Win+Space option, those commands remain in effect and may conflict with the
+new wallpaper and keyboard behavior. Because the file is left untouched,
+those existing lines must be updated manually if you want the new behavior.
+See the preceding section for the replacements. feh writes ~/.fehbg only
+after a wallpaper is chosen; dwm does not create or overwrite it at startup.
+Dwm does not install dependencies or rebuild itself. Setup failures are
+reported in the session log; startup continues where possible.

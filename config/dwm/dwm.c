@@ -33,6 +33,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/select.h>
 #include <locale.h>
 #include <limits.h>
@@ -326,8 +327,6 @@ static void zoom(const Arg *arg);
 static const char autostartblocksh[] = "autostart_blocking.sh";
 static const char autostartsh[] = "autostart.sh";
 static const char broken[] = "broken";
-static const char dwmdir[] = "dwm";
-static const char localshare[] = ".local/share";
 static char stext[1024];
 static int screen;
 static int sw, sh; /* X display screen geometry width, height */
@@ -2764,79 +2763,153 @@ void run(void) {
       handler[ev.type](&ev); /* call handler */
 }
 
+/* Create parent directories but never change existing files or permissions. */
+static int
+mkdirparents(const char *path)
+{
+  char dir[PATH_MAX], *p;
+  size_t len = strlen(path);
+  if (!len || len >= sizeof dir) { errno = ENAMETOOLONG; return 0; }
+  memcpy(dir, path, len + 1);
+  for (p = dir + (dir[0] == '/'); ; p++) {
+    if (*p == '/' || *p == '\0') {
+      char end = *p;
+      *p = '\0';
+      if (*dir && mkdir(dir, 0700) < 0 && errno != EEXIST) return 0;
+      *p = end;
+      if (!end) break;
+    }
+  }
+  return 1;
+}
+
+/* Publish a fully written file using link(2), which fails rather than
+ * replacing an existing file, including a symlink or another process's file. */
+static int
+createifmissing(const char *dir, const char *name, const char *contents, mode_t mode)
+{
+  char path[PATH_MAX], tmp[PATH_MAX];
+  size_t remaining = strlen(contents);
+  const char *p = contents;
+  int fd, ok = 1, saved;
+  ssize_t n;
+  if (snprintf(path, sizeof path, "%s/%s", dir, name) >= (int)sizeof path ||
+      snprintf(tmp, sizeof tmp, "%s/.dwm-init-XXXXXX", dir) >= (int)sizeof tmp) {
+    errno = ENAMETOOLONG; return 0;
+  }
+  /* Fast path is optional; link() below is the authoritative race check. */
+  if (lstat(path, &(struct stat){0}) == 0 || errno == EEXIST) return 1;
+  if (errno != ENOENT) return 0;
+  if ((fd = mkstemp(tmp)) < 0) return 0;
+  while (remaining) {
+    n = write(fd, p, remaining);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) { ok = 0; break; }
+    p += n; remaining -= (size_t)n;
+  }
+  if (ok && fchmod(fd, mode) < 0) ok = 0;
+  saved = errno;
+  if (close(fd) < 0 && ok) { ok = 0; saved = errno; }
+  if (ok && link(tmp, path) < 0 && errno != EEXIST) { ok = 0; saved = errno; }
+  unlink(tmp);
+  if (!ok) errno = saved;
+  return ok;
+}
+
+/* Start executable autostart files without shell interpolation of their paths.
+ * The blocking variant temporarily enables waitpid, then restores dwm's
+ * normal SIGCHLD policy. Existing non-executable files are left alone. */
+static void
+startautostart(const char *path, int blocking)
+{
+  struct sigaction old, normal;
+  pid_t child;
+  int status;
+  if (access(path, X_OK) != 0) return;
+  if (blocking) {
+    memset(&normal, 0, sizeof normal);
+    normal.sa_handler = SIG_DFL;
+    sigemptyset(&normal.sa_mask);
+    if (sigaction(SIGCHLD, &normal, &old) < 0) return;
+  }
+  child = fork();
+  if (child == 0) {
+    close(ConnectionNumber(dpy));
+    signal(SIGCHLD, SIG_DFL);
+    if (!blocking) setsid();
+    execl(path, path, (char *)NULL);
+    if (errno == ENOEXEC) execl("/bin/sh", "sh", path, (char *)NULL);
+    fprintf(stderr, "dwm: could not start %s: %s\n", path, strerror(errno));
+    _exit(127);
+  }
+  if (child < 0) fprintf(stderr, "dwm: cannot start %s: %s\n", path, strerror(errno));
+  else if (blocking) {
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) ;
+  }
+  if (blocking) sigaction(SIGCHLD, &old, NULL);
+}
+
 void runautostart(void) {
-  char *pathpfx;
-  char *path;
-  char *xdgdatahome;
-  char *home;
-  struct stat sb;
-
-  if ((home = getenv("HOME")) == NULL)
-    /* this is almost impossible */
+  static const char blocking_default[] =
+      "#!/bin/sh\n# Optional blocking startup commands.\n";
+  static const char autostart_default[] =
+      "#!/bin/sh\n"
+      "# Generated once by dwm. Edit this file to customise startup.\n"
+      "if command -v nm-applet >/dev/null 2>&1; then nm-applet & fi\n"
+      "if command -v xrandr >/dev/null 2>&1 && "
+      "xrandr --query 2>/dev/null | grep -q '^eDP-1 connected' && "
+      "xrandr --query 2>/dev/null | grep -q '^HDMI-1 connected'; then\n"
+      "    xrandr --output eDP-1 --right-of HDMI-1\nfi\n"
+      "if [ -n \"${DWM_AUTOSTART_BIN:-}\" ] && [ -x \"$DWM_AUTOSTART_BIN\" ]; then\n"
+      "    \"$DWM_AUTOSTART_BIN\" --apply-display-settings\n"
+      "elif command -v dwm >/dev/null 2>&1; then dwm --apply-display-settings; fi\n"
+      "if [ -x \"$HOME/.fehbg\" ]; then\n    \"$HOME/.fehbg\" &\n"
+      "elif [ -f \"$HOME/Downloads/wallpaper/glassmorphsesimjapon.png\" ] && "
+      "command -v feh >/dev/null 2>&1; then\n"
+      "    feh --bg-fill \"$HOME/Downloads/wallpaper/glassmorphsesimjapon.png\" &\nfi\n"
+      "if command -v setxkbmap >/dev/null 2>&1; then "
+      "setxkbmap -layout us,ir -option ''; fi\n";
+  const char *home = getenv("HOME"), *xdg = getenv("XDG_DATA_HOME");
+  const char *wallpaper = getenv("DWM_WALLPAPERS_DIR");
+  char xdgdir[PATH_MAX], legacy[PATH_MAX], path[PATH_MAX], configdir[PATH_MAX], configpath[PATH_MAX];
+  char executable[PATH_MAX];
+  const char *dir;
+  struct stat st;
+  ssize_t n;
+  int length;
+  if (!home || !*home) return;
+  length = xdg && *xdg ? snprintf(xdgdir, sizeof xdgdir, "%s/dwm", xdg) :
+                         snprintf(xdgdir, sizeof xdgdir, "%s/.local/share/dwm", home);
+  if (length < 0 || (size_t)length >= sizeof xdgdir ||
+      snprintf(legacy, sizeof legacy, "%s/.dwm", home) >= (int)sizeof legacy) return;
+  if (stat(xdgdir, &st) == 0 && S_ISDIR(st.st_mode)) dir = xdgdir;
+  else if (stat(legacy, &st) == 0 && S_ISDIR(st.st_mode)) dir = legacy;
+  else dir = xdgdir;
+  if (!mkdirparents(dir)) {
+    fprintf(stderr, "dwm: cannot create autostart directory %s: %s\n", dir, strerror(errno));
     return;
-
-  /* if $XDG_DATA_HOME is set and not empty, use $XDG_DATA_HOME/dwm,
-   * otherwise use ~/.local/share/dwm as autostart script directory
-   */
-  xdgdatahome = getenv("XDG_DATA_HOME");
-  if (xdgdatahome != NULL && *xdgdatahome != '\0') {
-    /* space for path segments, separators and nul */
-    pathpfx = ecalloc(1, strlen(xdgdatahome) + strlen(dwmdir) + 2);
-
-    if (sprintf(pathpfx, "%s/%s", xdgdatahome, dwmdir) <= 0) {
-      free(pathpfx);
-      return;
-    }
-  } else {
-    /* space for path segments, separators and nul */
-    pathpfx =
-        ecalloc(1, strlen(home) + strlen(localshare) + strlen(dwmdir) + 3);
-
-    if (sprintf(pathpfx, "%s/%s/%s", home, localshare, dwmdir) < 0) {
-      free(pathpfx);
-      return;
-    }
   }
-
-  /* check if the autostart script directory exists */
-  if (!(stat(pathpfx, &sb) == 0 && S_ISDIR(sb.st_mode))) {
-    /* the XDG conformant path does not exist or is no directory
-     * so we try ~/.dwm instead
-     */
-    char *pathpfx_new = realloc(pathpfx, strlen(home) + strlen(dwmdir) + 3);
-    if (pathpfx_new == NULL) {
-      free(pathpfx);
-      return;
-    }
-    pathpfx = pathpfx_new;
-
-    if (sprintf(pathpfx, "%s/.%s", home, dwmdir) <= 0) {
-      free(pathpfx);
-      return;
-    }
+  if (!createifmissing(dir, autostartblocksh, blocking_default, 0755))
+    fprintf(stderr, "dwm: cannot create blocking autostart: %s\n", strerror(errno));
+  if (!createifmissing(dir, autostartsh, autostart_default, 0755))
+    fprintf(stderr, "dwm: cannot create autostart: %s\n", strerror(errno));
+  /* The mode file is intentionally empty until a user chooses a mode. */
+  if (displayconfigpath(configdir, sizeof configdir, configpath, sizeof configpath)) {
+    if (!mkdirparents(configdir) || !createifmissing(configdir, "refreshrate.conf", "", 0600))
+      fprintf(stderr, "dwm: cannot initialise display settings: %s\n", strerror(errno));
   }
-
-  /* try the blocking script first */
-  path = ecalloc(1, strlen(pathpfx) + strlen(autostartblocksh) + 2);
-  if (sprintf(path, "%s/%s", pathpfx, autostartblocksh) <= 0) {
-    free(path);
-    free(pathpfx);
+  if ((!wallpaper || !*wallpaper) &&
+      snprintf(path, sizeof path, "%s/Downloads/wallpaper", home) < (int)sizeof path && !mkdirparents(path))
+    fprintf(stderr, "dwm: cannot create wallpaper directory: %s\n", strerror(errno));
+  /* The generated script can invoke this exact binary even if dwm is not on PATH. */
+  n = readlink("/proc/self/exe", executable, sizeof executable - 1);
+  if (n > 0 && (size_t)n < sizeof executable - 1) {
+    executable[n] = '\0'; setenv("DWM_AUTOSTART_BIN", executable, 1);
   }
-
-  if (access(path, X_OK) == 0)
-    system(path);
-
-  /* now the non-blocking script */
-  if (sprintf(path, "%s/%s", pathpfx, autostartsh) <= 0) {
-    free(path);
-    free(pathpfx);
-  }
-
-  if (access(path, X_OK) == 0)
-    system(strcat(path, " &"));
-
-  free(pathpfx);
-  free(path);
+  if (snprintf(path, sizeof path, "%s/%s", dir, autostartblocksh) < (int)sizeof path)
+    startautostart(path, 1);
+  if (snprintf(path, sizeof path, "%s/%s", dir, autostartsh) < (int)sizeof path)
+    startautostart(path, 0);
 }
 
 void scan(void) {
