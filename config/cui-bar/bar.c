@@ -74,6 +74,7 @@ typedef struct {
     Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
+    struct { char path[512]; cui_texture texture; } notice_images[ISLAND_NOTICES];
     Window tooltip; cui_ctx *tooltip_ui; int tooltip_kind, tooltip_panel, tooltip_width, tooltip_height;
 } Bar;
 static volatile sig_atomic_t running = 1;
@@ -547,7 +548,14 @@ static void close_popup(Bar *b) {
     if (!b->popup) return;
     XUngrabKeyboard(b->dpy, CurrentTime);
     XDestroyWindow(b->dpy, b->popup); b->popup = None;
-    if (b->popup_ui) { cui_destroy(b->popup_ui); b->popup_ui = NULL; }
+    if (b->popup_ui) {
+        int i;
+        for (i = 0; i < ISLAND_NOTICES; i++) {
+            if (b->notice_images[i].texture) cui_image_destroy(b->popup_ui, b->notice_images[i].texture);
+        }
+        memset(b->notice_images, 0, sizeof b->notice_images);
+        cui_destroy(b->popup_ui); b->popup_ui = NULL;
+    }
     wipe(&popup_state, sizeof popup_state); popup_bar = NULL;
 }
 static int notification_popup_x(const Bar *b, int width);
@@ -623,6 +631,19 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
         }
     }
 }
+/* Dunst history can expose a file path, but not raw image-data. Cache each
+ * decoded image for the lifetime of the popup rather than loading every frame. */
+static cui_texture notice_image(cui_ctx *ui, Bar *b, int i, const char *path) {
+    struct stat st;
+    if (strcmp(b->notice_images[i].path, path)) {
+        if (b->notice_images[i].texture) cui_image_destroy(ui, b->notice_images[i].texture);
+        b->notice_images[i].texture = 0;
+        copystr(b->notice_images[i].path, sizeof b->notice_images[i].path, path);
+        if (path[0] == '/' && !stat(path, &st) && S_ISREG(st.st_mode) && st.st_size > 0 && st.st_size <= 2 * 1024 * 1024)
+            b->notice_images[i].texture = cui_image_load(ui, path, NULL, NULL);
+    }
+    return b->notice_images[i].texture;
+}
 static void notifications_page(cui_ctx *ui, Bar *b) {
     int i;
     cui_scroll(ui, .id = "notifications", .width = CUI_FILL, .height = CUI_FILL, .pad = 14, .gap = 10) {
@@ -656,10 +677,12 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
             cui_push_id_int(ui, n->id ? n->id : -(i + 1));
             cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 5) {
                 cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+                    cui_avatar(ui, n->title[0] ? n->title : n->app, .size = 32,
+                               .image = notice_image(ui, b, i, n->icon_path));
                     cui_column(ui, .width = CUI_FILL) {
                         cui_text(ui, n->app[0] ? n->app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
                     }
-                    if (cui_button(ui, "Dismiss", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST, .disabled = !n->id || b->island_fd < 0))
+                    if (cui_button(ui, "Dismiss", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST, .color = CUI_RGB(0xb86a6a), .disabled = !n->id || b->island_fd < 0))
                         island_request(b, ISLAND_DISMISS, n->id);
                 }
                 cui_text(ui, n->title[0] ? n->title : "Notification", .font = CUI_FONT_MEDIUM, .size = 14);
@@ -1192,9 +1215,9 @@ int main(void) {
                 if (b.island_initialized && next.notifications_available && b.island.notifications_available) {
                     if (next.notice_count && (next.history_count > b.island.history_count ||
                         (b.island.notice_count && (strcmp(next.notices[0].title, b.island.notices[0].title) || strcmp(next.notices[0].app, b.island.notices[0].app))))) {
-                        b.island_notice_until = island_now() + 7; b.island_live = 0;
+                        b.island_notice_until = island_now() + 3; b.island_live = 0;
                     } else if (next.active_count > b.island.active_count) {
-                        b.island_notice_until = island_now() + 7; b.island_live = 1;
+                        b.island_notice_until = island_now() + 3; b.island_live = 1;
                     }
                 }
                 b.island = next; b.island_initialized = 1; dirty = 1;

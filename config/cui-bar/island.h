@@ -3,7 +3,7 @@
 #define ISLAND_JSON_TOKENS 16384
 #define ISLAND_JSON_CAP 262144
 
-typedef struct { int id; char app[96], title[192], body[384]; } IslandNotice;
+typedef struct { int id; char app[96], title[192], body[384], icon_path[512]; } IslandNotice;
 typedef struct {
     int player_available, playing, notifications_available, history_count, active_count, notice_count;
     char artist[160], title[192];
@@ -124,6 +124,7 @@ static void island_history(const char *json, IslandFrame *frame) {
                 if (!errno && end == json + t[v].end && id > 0 && id <= INT_MAX) notice->id = (int)id;
             }
         }
+        island_variant_string(json, t, n, i, "icon_path", notice->icon_path, sizeof notice->icon_path);
         island_variant_string(json, t, n, i, "appname", notice->app, sizeof notice->app);
         island_variant_string(json, t, n, i, "summary", notice->title, sizeof notice->title);
         island_variant_string(json, t, n, i, "body", notice->body, sizeof notice->body);

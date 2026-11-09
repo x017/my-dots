@@ -8,9 +8,10 @@ static void script(const char *dir, const char *name, const char *body) {
 }
 int main(void) {
     char dir[] = "/tmp/cui-island-test-XXXXXX", path[1024], action_script[2048], logpath[512]; IslandFrame f = {0};
-    const char *json = "{\"type\":\"aa{sv}\",\"data\":[[{\"id\":{\"type\":\"i\",\"data\":42},\"appname\":{\"type\":\"s\",\"data\":\"Mail\"},\"summary\":{\"type\":\"s\",\"data\":\"Hello \\\"world\\\" \\u263a\"},\"body\":{\"type\":\"s\",\"data\":\"Line 1\\nLine 2\"}},{\"summary\":{\"type\":\"s\",\"data\":\"Another\"}}]]}";
+    const char *json = "{\"type\":\"aa{sv}\",\"data\":[[{\"id\":{\"type\":\"i\",\"data\":42},\"icon_path\":{\"type\":\"s\",\"data\":\"/tmp/avatar.png\"},\"appname\":{\"type\":\"s\",\"data\":\"Mail\"},\"summary\":{\"type\":\"s\",\"data\":\"Hello \\\"world\\\" \\u263a\"},\"body\":{\"type\":\"s\",\"data\":\"Line 1\\nLine 2\"}},{\"summary\":{\"type\":\"s\",\"data\":\"Another\"}}]]}";
     island_history(json, &f); assert(f.notice_count == 2);
     assert(f.notices[0].id == 42 && f.notices[1].id == 0);
+    assert(!strcmp(f.notices[0].icon_path, "/tmp/avatar.png"));
     assert(!strcmp(f.notices[0].app, "Mail"));
     assert(!strcmp(f.notices[0].title, "Hello \"world\" \xe2\x98\xba"));
     assert(!strcmp(f.notices[0].body, "Line 1 Line 2"));

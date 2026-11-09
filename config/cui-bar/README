@@ -52,7 +52,8 @@ when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
 The island uses `playerctl` and an MPRIS-compatible player for track metadata
 and previous/play-pause/next controls. Long titles scroll, and the small bars
-animate while playing. Clicking the bell or track opens a panel with media
+animate while playing. Notification alerts briefly replace the track text for
+three seconds before it returns. Clicking the bell or track opens a panel with media
 controls and recent notifications directly beneath the island (or right-aligned
 when the island does not fit). The island worker polls roughly every 500 ms,
 plus the time needed to run its commands. The notification part integrates with a
@@ -63,7 +64,10 @@ unread count. Dunst reports history after notifications leave the screen, so
 new arrivals initially show a generic alert and their details appear in history
 afterward. Each history entry with an ID has a Dismiss button that removes that
 entry from Dunst history via `dunstctl history-rm` (requires a Dunst version
-that supports this command). This does not act on live popups. Other notification
+that supports this command). This does not act on live popups. History cards
+show Dunst icon paths when they point to readable PNG or JPEG files, and fall
+back to initials otherwise. Dunst history does not expose raw image-data, so
+Telegram avatars sent only as raw pixels cannot be shown by this integration. Other notification
 daemons are not currently supported. If Dunst or
 playerctl is missing, the corresponding feature is shown as unavailable. On
 narrow monitors the island shrinks; right-click the dashboard button to open
