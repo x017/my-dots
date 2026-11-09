@@ -846,20 +846,11 @@ static const char *network_label(const Bar *b) {
     }
     return b->ethernet ? "Ethernet" : "Offline";
 }
-/* Travel in both directions, with eased ends and pauses instead of a jump. */
-static float island_marquee_offset(float overflow, double now) {
-    double travel, phase, t;
-    if (overflow <= 0) return 0;
-    travel = overflow / 22.0;
-    phase = fmod(now, 2.0 * travel + 2.0);
-    if (phase < 1.0) return 0;
-    phase -= 1.0;
-    if (phase < travel) t = phase / travel;
-    else if ((phase -= travel) < 1.0) return overflow;
-    else t = 1.0 - (phase - 1.0) / travel;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    return (float)(overflow * t * t * (3.0 - 2.0 * t));
+/* Repeat the text after a gap, so it travels in one direction without a jump. */
+#define ISLAND_MARQUEE_GAP 32.0f
+static float island_marquee_offset(float cycle, double now) {
+    if (cycle <= 0) return 0;
+    return (float)fmod(now * 22.0, cycle);
 }
 /* Center island stays inside the free interval between the rails. */
 static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
@@ -898,11 +889,12 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     else snprintf(text, sizeof text, "%s", b->island.notifications_available ? "No music playing" : "No player / Dunst");
     {
         float full = cui_measure_text(ui, CUI_FONT_MONO, 11, text, -1).width;
-        float offset = 0;
-        if (full > text_width && (b->island.playing || b->island_notice_until > now))
-            offset = island_marquee_offset(full - text_width, now);
+        float offset = 0, cycle = full + ISLAND_MARQUEE_GAP;
+        int scrolling = full > text_width && (b->island.playing || b->island_notice_until > now);
+        if (scrolling) offset = island_marquee_offset(cycle, now);
         cui_push_clip(ui, (cui_rect){text_left, 4, text_width, HEIGHT - 8});
         cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset, 8}, white, text, -1);
+        if (scrolling) cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset + cycle, 8}, white, text, -1);
         cui_pop_clip(ui);
     }
 }
