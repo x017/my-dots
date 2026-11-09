@@ -245,6 +245,7 @@ static void grabkeys(void);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
+static void closeclient(Client *c);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
@@ -525,7 +526,7 @@ void alttab(const Arg *arg) {
     }
     drw_setscheme(d, head);
     drw_text(d, pad, height - pad - rh, width - 2 * pad, rh, 4,
-             "TAB cycle   1-9 tag   0 all   ESC cancel   release ALT select", 0);
+             "TAB cycle   DEL close   1-9 tag   ESC cancel   release ALT select", 0);
     drw_map(d, popup, 0, 0, width, height);
     XNextEvent(dpy, &ev);
     if (havepreview && ev.type == damage_event + XDamageNotify) {
@@ -541,6 +542,11 @@ void alttab(const Arg *arg) {
     } else if (ev.type == KeyPress) {
       key = XLookupKeysym(&ev.xkey, 0);
       if (key == XK_Escape) done = 1;
+      else if ((key == XK_Delete || key == XK_KP_Delete) && count) {
+        /* Request a normal close without changing focus or the viewed tag. */
+        c = wintoclient(list[choice]);
+        if (c) closeclient(c);
+      }
       else if (key == XK_Return || key == XK_KP_Enter) done = accept = 1;
       else if ((key == XK_Tab || key == XK_ISO_Left_Tab || key == XK_Down || key == XK_Up) && count) {
         int reverse = key == XK_Up || key == XK_ISO_Left_Tab || (ev.xkey.state & ShiftMask);
@@ -1694,20 +1700,24 @@ void keypress(XEvent *e) {
       keys[i].func(&(keys[i].arg));
 }
 
-void killclient(const Arg *arg) {
-  if (!selmon->sel)
+/* Use the same close protocol for the focused window and switcher entries. */
+void closeclient(Client *c) {
+  if (!c)
     return;
-
-  if (!sendevent(selmon->sel->win, wmatom[WMDelete], NoEventMask,
+  if (!sendevent(c->win, wmatom[WMDelete], NoEventMask,
                  wmatom[WMDelete], CurrentTime, 0, 0, 0)) {
     XGrabServer(dpy);
     XSetErrorHandler(xerrordummy);
     XSetCloseDownMode(dpy, DestroyAll);
-    XKillClient(dpy, selmon->sel->win);
+    XKillClient(dpy, c->win);
     XSync(dpy, False);
     XSetErrorHandler(xerror);
     XUngrabServer(dpy);
   }
+}
+
+void killclient(const Arg *arg) {
+  closeclient(selmon->sel);
 }
 
 void manage(Window w, XWindowAttributes *wa) {
