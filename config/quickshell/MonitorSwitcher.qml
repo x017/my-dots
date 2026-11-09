@@ -7,7 +7,7 @@ import QtQuick.Effects
 // MonitorSwitcher — floating card for switching Hyprland monitor profiles.
 // Toggle with:  quickshell -c default ipc call monitorSwitcher toggle
 // Closes automatically ~500ms after a profile is applied.
-// Palette: "Editor Dark" (bg #090b0d / fg #adbac7 / accents gold+blue+muted-red)
+// Palette: "Editor Dark" (bg #090b0d / fg #adbac7 / accents white+blue+muted-red)
 
 Scope {
     id: root
@@ -27,14 +27,14 @@ Scope {
     readonly property color colBorderStrong: "#2d3035"
     readonly property color colFg: "#adbac7"
     readonly property color colFgDim: "#8a949e"
-    readonly property color colGold: "#f2d49e"
+    readonly property color colWhite: "#e9eff6"
     readonly property color colBlue: "#7fa8c9"
     readonly property color colRed: "#b86a6a"
     readonly property color colInfo: "#64778d"
 
     readonly property var profiles: [
         { key: "home", label: "HOME",  sub: "1920×1080 · 110Hz",  tag: "H", accent: colBlue },
-        { key: "work", label: "WORK",  sub: "1920×1080 · 75Hz",   tag: "W", accent: colGold },
+        { key: "work", label: "WORK",  sub: "1920×1080 · 75Hz",   tag: "W", accent: colWhite },
         { key: "auto", label: "AUTO",  sub: "preferred mode",     tag: "P", accent: colInfo }
     ]
 
@@ -166,7 +166,7 @@ Scope {
 
                     Rectangle {
                         width: 6; height: 6; radius: 3
-                        color: root.busy ? root.colGold : root.colBlue
+                        color: root.busy ? root.colWhite : root.colBlue
                         Behavior on color { ColorAnimation { duration: 180 } }
                         SequentialAnimation on opacity {
                             running: root.busy

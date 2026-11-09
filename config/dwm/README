@@ -5,7 +5,8 @@ dwm is an extremely fast, small, and dynamic window manager for X.
 
 Requirements
 ------------
-In order to build dwm you need the Xlib header files.
+In order to build dwm you need Xlib, Xft, Fontconfig, Xinerama,
+XComposite, XDamage and XRender development headers and libraries.
 
 
 Installation
@@ -32,17 +33,188 @@ the DISPLAY environment variable is set correctly, e.g.:
 
 (This will start dwm on display :1 of the host foo.bar.)
 
-In order to display status info in the bar, you can do something
-like this in your .xinitrc:
-
-    while xsetroot -name "`date` `uptime | sed 's/.*,//'`"
-    do
-    	sleep 1
-    done &
-    exec dwm
-
+The optional standalone CUI bar supplies its own status information; see
+"Standalone CUI bar" below. It does not read xsetroot status text.
 
 Configuration
 -------------
 The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
+
+Window switcher
+---------------
+Alt+Tab opens a fast, most-recently-used list of windows on the current
+monitor, including windows on other tags. Keep Alt held and press Tab (or
+Shift+Tab) to cycle; release Alt or press Enter to select. Escape cancels.
+Press Delete to close the highlighted window without switching to its tag; the
+switcher stays open. Apps can prompt to save changes after you release Alt.
+As with Alt+C, apps without WM_DELETE_WINDOW support are forcibly closed.
+While the switcher is open, press 1–9 to preview/filter that tag's windows,
+or 0 to show all tags. Selecting a hidden window switches to its tag. The
+popup shows a live preview of the selected window using XComposite, XDamage
+and XRender, alongside window titles. It uses the Quickshell palette and
+monospace font. If the X server lacks those extensions, titles still work. Alt+Ctrl+Tab retains the previous-tag shortcut.
+Rebuild and restart dwm after changing the configuration.
+
+Monitor switcher
+----------------
+With at least two monitors, hold Alt and press ` (grave) to open the monitor
+switcher. It previews the windows on each monitor's currently visible tags in
+a miniature layout and lists their titles. Press `, Tab or the arrow keys to
+choose a display; Shift reverses cycling. Release Alt or press Enter to focus
+the selected monitor and move the pointer there; Escape cancels. For more
+than three monitors, the cards page automatically as you cycle. The previews
+use the same X extensions and fallback as the window switcher. Existing
+Alt+comma and Alt+period monitor focus shortcuts still work.
+
+Wallpaper switcher
+------------------
+Alt+Shift+W opens a built-in X11 wallpaper switcher, drawn by dwm in the same
+style as Alt+Tab. There is no separate GTK application to install or launch.
+It scans ~/Downloads/wallpaper (the folder used by your Hyprland config) when
+opened. Use Up/Down or j/k (or the mouse) to choose an image, Enter or the
+SET WALLPAPER button to apply it, R to rescan, and Escape to cancel. Supported
+extensions are jpg, jpeg, png, webp, bmp and gif. The large preview shows the
+selected image when Imlib2 and its appropriate image loader are installed;
+if Imlib2 is unavailable, the list and selection still work.
+
+Install feh and the Imlib2 runtime, then rebuild and restart dwm with
+`make clean install`. The switcher executes `feh --bg-fill` for the selected
+file on the X11 screens. feh saves ~/.fehbg; to restore the choice at login,
+add `[ -x "$HOME/.fehbg" ] && "$HOME/.fehbg" &` to your dwm autostart script
+or .xinitrc. To use another folder, set DWM_WALLPAPERS_DIR to an absolute
+path in the environment before starting dwm. Missing or unreadable folders
+are reported in the popup; create the folder and press R to retry. The
+switcher does not change Hyprland's wallpaper configuration.
+
+Display modes, keyboard layout and wallpaper restore
+----------------------------------------------------
+Alt+Shift+R opens a native dwm popup: select a connected monitor, then a
+resolution and refresh rate. Arrow keys and Enter or mouse clicks select;
+Escape cancels. dwm calls xrandr and saves a successful choice in
+${XDG_CONFIG_HOME:-$HOME/.config}/refreshrate.conf, compatible with your
+existing file. No refreshmenu script or rofi is needed. To restore modes at
+login, replace the old refreshmenu --apply line in your autostart with:
+
+    dwm --apply-display-settings
+
+This is a one-shot command, not a second window manager. Run it after your
+xrandr positioning command and before restoring the wallpaper. xrandr must be
+installed and dwm must be on PATH; failures are printed to the session log.
+
+Win+Space switches the XKB keyboard group. If your existing XKB options
+include `grp:win_space_toggle`, dwm leaves that shortcut to XKB; otherwise
+dwm handles it directly. It watches for keyboard configuration changes and
+does not edit existing autostart files or clear your other XKB options.
+Both layouts must already be configured; the generated autostart sets
+`us,ir` on a fresh setup. Existing autostart files are left untouched. If
+you use different layouts, keep configuring them as you already do.
+
+Your old hard-coded `feh --bg-fill ...` autostart line resets the wallpaper
+on every login. Replace it rather than adding another feh command beside it:
+
+    if [ -x "$HOME/.fehbg" ]; then
+        "$HOME/.fehbg" &
+    else
+        feh --bg-fill "$HOME/Downloads/wallpaper/glassmorphsesimjapon.png" &
+    fi
+
+Run this *after* the xrandr positioning and dwm --apply-display-settings commands.
+The picker uses feh, which writes ~/.fehbg on a successful change. See
+`autostart.example.sh` for an example based on your current setup; merge it
+into your existing dwm autostart instead of running both copies. The example
+assumes the same eDP-1 and HDMI-1 output names as your current setup.
+
+The wallpaper preview now decodes only the highlighted image in a separate,
+cancellable helper and transfers a scaled preview back to dwm. Moving through
+high-resolution files should not block the dwm event loop; applying via feh
+can still take a few seconds for large images.
+
+Automatic first-run setup
+-------------------------
+On startup, dwm creates missing files itself; no setup script is needed. It
+chooses $XDG_DATA_HOME/dwm (or ~/.local/share/dwm), falling back to ~/.dwm
+if the XDG directory does not exist and ~/.dwm already exists. If neither
+exists it creates the XDG directory. Within that directory it creates an
+executable autostart.sh with the monitor, saved-mode, wallpaper, network
+applet and keyboard setup shown in autostart.example.sh, and an empty
+executable autostart_blocking.sh for optional blocking commands. It also
+creates an empty ${XDG_CONFIG_HOME:-$HOME/.config}/refreshrate.conf and the
+default ~/Downloads/wallpaper directory if they do not exist. If
+DWM_WALLPAPERS_DIR is set, the custom directory is not created automatically.
+
+Existing files, symlinks, directories and permissions are never overwritten
+or changed by first-run setup, including non-executable autostart files.
+Existing executable autostart scripts continue to run as before. If an
+existing autostart still contains the old hard-coded feh command, it can
+reset the wallpaper at login; update that line manually if needed. Existing
+Win+Space XKB settings are handled automatically as described above.
+See the preceding section for the replacements. feh writes ~/.fehbg only
+after a wallpaper is chosen; dwm does not create or overwrite it at startup.
+Dwm does not install dependencies or rebuild itself. Setup failures are
+reported in the session log; startup continues where possible.
+
+Control center comparison
+-------------------------
+Two versions are available for testing. Both are compiled into dwm, not
+launched from a separate dashboard executable:
+
+* Alt+Shift+D: native Xlib/Drw popup, like the other dwm switchers. Use
+  Left/Right or Tab to change section, Up/Down to select, Enter to act, and
+  Escape to close. Clicking rows and scrolling are also supported. Select a
+  Bluetooth device first, then select an action further down the list.
+* Ctrl+Alt+Shift+D: CUI version, if built with CUI=1 as described below. Its
+  interface is compiled into dwm; its event loop runs in a forked child with
+  a separate floating X11 window so the window manager remains responsive.
+  It uses the same sidebar and redesigned overview as the bar dashboard;
+  narrow windows use compact icon navigation.
+
+Both use nmcli (NetworkManager), bluetoothctl (BlueZ), and pactl (PulseAudio
+or PipeWire's PulseAudio compatibility service). These services must be
+running and the desktop user must have permission to control them. Operations
+run outside dwm's event loop and refresh periodically. Wi-Fi passwords are
+sent through private pipes, not command-line arguments, and cleared after
+submission. The password field supports WPA personal; use NetworkManager's
+connection editor for enterprise credentials or hidden networks. Bluetooth
+pairing requiring PIN or confirmation needs a separate running pairing agent,
+for example Blueman. Backend and permission failures are displayed.
+
+The native version is part of the normal dwm build and needs no extra UI
+library. To additionally build the CUI version, install CMake, Git, a C
+compiler, pthreads, and the X11 development libraries required by CUI. From
+config/dwm, fetch and build the pinned CUI revision, then build dwm:
+
+    cmake -S dashboard -B dashboard/build
+    cmake --build dashboard/build --target cui
+    make clean
+    make CUI=1
+    sudo make CUI=1 install
+
+Restart dwm after installation. The CUI version uses the system monospace font
+via fc-match, falling back to CUI's built-in mono; DWM_DASHBOARD_FONT may name
+a font file. Its optional settings buttons launch nm-connection-editor,
+blueman-manager, and pavucontrol when installed. The standalone CUI build
+remains available for independent testing, but is not needed by the binding.
+Existing autostart files are not changed.
+
+Standalone CUI bar
+------------------
+The old dwm bar and tray have been removed. The replacement is a separate,
+lightweight CUI/X11 application under ../cui-bar. It has its own XEmbed tray,
+and communicates with dwm only for per-monitor workspace state, workspace
+clicks, and reserving screen space. It does not depend on the dashboard
+build. When `cui-bar` is on dwm's PATH, dwm starts it automatically if no
+other X11 tray is running; existing autostart files are left unchanged. Set
+DWM_NO_CUI_BAR=1 before starting dwm to disable automatic launch.
+
+See ../cui-bar/README for build instructions, controls, and limitations.
+
+The CUI dashboard and the bar's control popup also include a display mode
+page. Display changes use xrandr and the same saved per-output configuration
+as the native switcher. Wallpaper selection remains in the native picker and
+uses feh and its ~/.fehbg.
+The native wallpaper picker previews images with Imlib2 (including its image
+loaders), and remains open after applying so another can be selected. If the
+default folder is empty it also checks ~/Pictures/Wallpapers,
+~/Pictures/wallpapers and ~/wallpapers. DWM_WALLPAPERS_DIR explicitly selects
+a folder and disables this fallback.
