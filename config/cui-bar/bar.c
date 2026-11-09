@@ -19,6 +19,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <math.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -845,6 +846,21 @@ static const char *network_label(const Bar *b) {
     }
     return b->ethernet ? "Ethernet" : "Offline";
 }
+/* Travel in both directions, with eased ends and pauses instead of a jump. */
+static float island_marquee_offset(float overflow, double now) {
+    double travel, phase, t;
+    if (overflow <= 0) return 0;
+    travel = overflow / 22.0;
+    phase = fmod(now, 2.0 * travel + 2.0);
+    if (phase < 1.0) return 0;
+    phase -= 1.0;
+    if (phase < travel) t = phase / travel;
+    else if ((phase -= travel) < 1.0) return overflow;
+    else t = 1.0 - (phase - 1.0) / travel;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return (float)(overflow * t * t * (3.0 - 2.0 * t));
+}
 /* Center island stays inside the free interval between the rails. */
 static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     int x = l.island, w = l.island_width, text_left, text_width, controls;
@@ -852,11 +868,7 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     double now = island_now();
     if (!w) return;
     cui_draw_rect_border(ui, (cui_rect){x, 2, w, 24}, CUI_CORNERS(12), CUI_RGB(0x181a1e), CUI_RGB(0x2d3035), 1);
-    cui_draw_rect_border(ui, (cui_rect){x + 3, 4, 20, 20}, CUI_CORNERS(10), CUI_RGB(0x22252a), CUI_RGB(0x363a40), 1);
-    icon(ui, x + 7, 7, 12, b->island.notifications_available ? white : muted, CUI_ICON_BELL);
-    if (b->island.notifications_available && (b->island.active_count || b->island.history_count)) {
-        cui_draw_rect(ui, (cui_rect){x + 17, 4, 6, 6}, CUI_CORNERS(3), CUI_RGB(0xb86a6a));
-    }
+    icon(ui, x + 7, 7, 13, b->island.notifications_available ? white : muted, CUI_ICON_BELL);
     if (b->island.notifications_available && (b->island.active_count || b->island.history_count) && w >= 120) {
         int count = b->island.active_count ? b->island.active_count : b->island.history_count;
         snprintf(text, sizeof text, "%d", count > 99 ? 99 : count);
@@ -885,16 +897,12 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
         snprintf(text, sizeof text, "%s%s%s", b->island.artist, b->island.artist[0] ? "  /  " : "", b->island.title);
     else snprintf(text, sizeof text, "%s", b->island.notifications_available ? "No music playing" : "No player / Dunst");
     {
-        int full = (int)cui_measure_text(ui, CUI_FONT_MONO, 11, text, -1).width;
-        int offset = 0;
-        if (full > text_width && (b->island.playing || b->island_notice_until > now)) {
-            /* Slow, clipped marquee with a pause at each end; never slice UTF-8. */
-            int overflow = full - text_width, phase = (int)(now * 12) % (overflow + 36);
-            offset = phase < 18 ? 0 : phase - 18;
-            if (offset > overflow) offset = overflow;
-        }
+        float full = cui_measure_text(ui, CUI_FONT_MONO, 11, text, -1).width;
+        float offset = 0;
+        if (full > text_width && (b->island.playing || b->island_notice_until > now))
+            offset = island_marquee_offset(full - text_width, now);
         cui_push_clip(ui, (cui_rect){text_left, 4, text_width, HEIGHT - 8});
-        label(ui, text_left - offset, 8, 11, white, text);
+        cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset, 8}, white, text, -1);
         cui_pop_clip(ui);
     }
 }
@@ -1207,7 +1215,7 @@ int main(void) {
         if (b.worker_fd >= 0) { FD_SET(b.worker_fd, &fds); if (b.worker_fd > maxfd) maxfd = b.worker_fd; }
         if (b.island_fd >= 0) { FD_SET(b.island_fd, &fds); if (b.island_fd > maxfd) maxfd = b.island_fd; }
         timeout.tv_sec = next_stats > now ? next_stats - now : 0; timeout.tv_usec = 0;
-        if ((b.island.playing || b.island_notice_until > island_now()) && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 125000; }
+        if ((b.island.playing || b.island_notice_until > island_now()) && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 33333; }
         else if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
         ready = XPending(b.dpy) ? 0 : select(maxfd + 1, &fds, NULL, NULL, &timeout);
         if (ready == 0 && b.popup) b.popup_dirty = 1;

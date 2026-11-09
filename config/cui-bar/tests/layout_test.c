@@ -16,6 +16,11 @@ int main(void) {
         v[0] = 4; assert(!workspace_header(v, 3 + 2 * 9, &count, &stride));
         v[0] = 3; v[1] = 17; assert(!workspace_header(v, 3 + 2 * 9, &count, &stride));
     }
+    assert(island_marquee_offset(0, 0) == 0);
+    assert(island_marquee_offset(22, 0.5) == 0);
+    assert(island_marquee_offset(22, 1.5) > 10 && island_marquee_offset(22, 1.5) < 12);
+    assert(island_marquee_offset(22, 2.5) == 22);
+    assert(island_marquee_offset(22, 3.5) > 10 && island_marquee_offset(22, 3.5) < 12);
     b.tag_count = 9; b.tray_width = 68;
     for (i = 0; i < sizeof widths / sizeof widths[0]; i++) {
         b.width = widths[i]; b.current = 0; l = layout(&b);
