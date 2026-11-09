@@ -81,7 +81,7 @@ dashboardnative(const Arg *arg)
   Clr *normal, *selected, *head;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *sc[] = {"#e9eff6", "#181a1e", "#e9eff6"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
   Snapshot snapshot = {0};
   DashboardFrame incoming;

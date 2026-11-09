@@ -723,7 +723,7 @@ static const char *network_label(const Bar *b) {
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[160];
-    cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x8a949e), blue = CUI_RGB(0x7fa8c9), white = CUI_RGB(0xf2d49e);
+    cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x8a949e), blue = CUI_RGB(0x7fa8c9), white = CUI_RGB(0xe9eff6);
     (void)r;
     cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x090b0d), CUI_RGB(0x2d3035), 1);
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {

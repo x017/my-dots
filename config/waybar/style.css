@@ -1,6 +1,6 @@
 /* ==========================================================
    Waybar — "Editor Dark" palette
-   bg #090b0d · fg #adbac7 · gold #f2d49e · blue #7fa8c9
+   bg #090b0d · fg #adbac7 · white #e9eff6 · blue #7fa8c9
    red #b86a6a · info #64778d · borders #1e2025 / #2d3035
    ========================================================== */
 * {
@@ -115,11 +115,11 @@ window#waybar {
 }
 
 #clock:hover {
-  color: #f2d49e;
+  color: #e9eff6;
 }
 
 #battery.warning {
-  color: #f2d49e;
+  color: #e9eff6;
 }
 
 #battery.critical {
@@ -149,7 +149,7 @@ window#waybar {
 
 #tray>.needs-attention {
   -gtk-icon-effect: highlight;
-  color: #f2d49e;
+  color: #e9eff6;
 }
 
 /* ===== Tooltip ===== */

@@ -440,7 +440,7 @@ displaypick(const char *title, char **items, int count)
   Clr *normal, *selected, *head;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *sc[] = {"#e9eff6", "#181a1e", "#e9eff6"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
   int width, height, rh, visible, choice = 0, start, i, done = 0, result = -1;
   KeySym key;
@@ -908,7 +908,7 @@ void wallpaperswitcher(const Arg *arg)
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *sc[] = {"#e9eff6", "#181a1e", "#e9eff6"};
   const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
   const char *folder = getenv("DWM_WALLPAPERS_DIR"), *home = getenv("HOME");
   char *directory, **paths, *base, message[512], line[512];
@@ -1104,7 +1104,7 @@ void alttab(const Arg *arg) {
   Clr *normal, *selected, *head, *muted, *blue;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *sc[] = {"#e9eff6", "#181a1e", "#e9eff6"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
   const char *mc[] = {"#8a949e", "#121417", "#1e2025"};
   const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
@@ -1271,7 +1271,7 @@ void monitorswitcher(const Arg *arg) {
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *sc[] = {"#e9eff6", "#181a1e", "#e9eff6"};
   const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
   unsigned int nm = 0, nw = 0, i, j, first, slots, active = 0;
   int width, height, pad = 16, rh, cardw, cardh, previewh;
