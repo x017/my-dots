@@ -852,7 +852,11 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     double now = island_now();
     if (!w) return;
     cui_draw_rect_border(ui, (cui_rect){x, 2, w, 24}, CUI_CORNERS(12), CUI_RGB(0x181a1e), CUI_RGB(0x2d3035), 1);
-    icon(ui, x + 7, 7, 13, b->island.notifications_available ? white : muted, CUI_ICON_BELL);
+    cui_draw_rect_border(ui, (cui_rect){x + 3, 4, 20, 20}, CUI_CORNERS(10), CUI_RGB(0x22252a), CUI_RGB(0x363a40), 1);
+    icon(ui, x + 7, 7, 12, b->island.notifications_available ? white : muted, CUI_ICON_BELL);
+    if (b->island.notifications_available && (b->island.active_count || b->island.history_count)) {
+        cui_draw_rect(ui, (cui_rect){x + 17, 4, 6, 6}, CUI_CORNERS(3), CUI_RGB(0xb86a6a));
+    }
     if (b->island.notifications_available && (b->island.active_count || b->island.history_count) && w >= 120) {
         int count = b->island.active_count ? b->island.active_count : b->island.history_count;
         snprintf(text, sizeof text, "%d", count > 99 ? 99 : count);
