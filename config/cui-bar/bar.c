@@ -30,11 +30,11 @@
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
 
-#define HEIGHT 32
+#define HEIGHT 28
 #define TOP_GAP 8
 #define SIDE_GAP 10
-#define RADIUS 10
-#define ICON_SIZE 20
+#define RADIUS 8
+#define ICON_SIZE 18
 #define ICON_SLOT 30
 #define MAX_ICONS 64
 #define MAX_CPU_THREADS 128
@@ -689,10 +689,10 @@ static void icon(cui_ctx *ui, int x, int y, int size, cui_color color, const cha
     cui_draw_text(ui, CUI_FONT_ICONS, size, (cui_vec2){x, y}, color, glyph, -1);
 }
 static void dock_cell(cui_ctx *ui, int x, int w, const char *glyph, const char *title, const char *value, cui_color accent) {
-    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(7), CUI_RGB(0x121417));
-    icon(ui, x + 6, 9, 13, accent, glyph);
-    cui_push_clip(ui, (cui_rect){x + 22, 4, w - 24, HEIGHT - 8});
-    label(ui, x + 22, 4, 9, CUI_RGB(0x8a949e), title);
+    cui_draw_rect(ui, (cui_rect){x, 2, w, HEIGHT - 4}, CUI_CORNERS(6), CUI_RGB(0x121417));
+    icon(ui, x + 6, 7, 13, accent, glyph);
+    cui_push_clip(ui, (cui_rect){x + 22, 2, w - 24, HEIGHT - 4});
+    label(ui, x + 22, 2, 9, CUI_RGB(0x8a949e), title);
     {
         char fitted[256]; size_t len;
         snprintf(fitted, sizeof fitted, "%s", value);
@@ -705,7 +705,7 @@ static void dock_cell(cui_ctx *ui, int x, int w, const char *glyph, const char *
             }
             if (len + 3 < sizeof fitted) strcat(fitted, "...");
         }
-        label(ui, x + 22, 15, 11, CUI_RGB(0xadbac7), fitted);
+        label(ui, x + 22, 13, 11, CUI_RGB(0xadbac7), fitted);
     }
     cui_pop_clip(ui);
 }
@@ -729,31 +729,31 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 4, 24, 24}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 26, 12, 2}, CUI_CORNERS(1), white);
-            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 25}, 1.5f, blue);
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 3, 24, 22}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 23, 12, 2}, CUI_CORNERS(1), white);
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 23}, 1.5f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            label(ui, x + 10, 8, 12, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
+            label(ui, x + 10, 6, 12, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
         }
     }
     if (l.stats) {
         int x = l.tags + b->tag_count * 28 + 22;
-        icon(ui, x, 9, 14, blue, CUI_ICON_CPU);
-        label(ui, x + 19, 3, 9, muted, "CPU");
+        icon(ui, x, 7, 14, blue, CUI_ICON_CPU);
+        label(ui, x + 19, 1, 9, muted, "CPU");
         if (b->cpu >= 0) snprintf(text, sizeof text, "%d%%", b->cpu); else strcpy(text, "--");
-        label(ui, x + 19, 15, 11, fg, text);
-        icon(ui, x + 75, 9, 14, blue, CUI_ICON_DATABASE);
-        label(ui, x + 94, 3, 9, muted, "MEM");
+        label(ui, x + 19, 13, 11, fg, text);
+        icon(ui, x + 75, 7, 14, blue, CUI_ICON_DATABASE);
+        label(ui, x + 94, 1, 9, muted, "MEM");
         if (b->memory_total_kb) snprintf(text, sizeof text, "%.1fG", b->memory_used_kb / 1048576.0); else strcpy(text, "--");
-        label(ui, x + 94, 15, 11, fg, text);
-        icon(ui, x + 150, 9, 14, blue, CUI_ICON_ACTIVITY);
-        label(ui, x + 169, 3, 9, muted, "TEMP");
+        label(ui, x + 94, 13, 11, fg, text);
+        icon(ui, x + 150, 7, 14, blue, CUI_ICON_ACTIVITY);
+        label(ui, x + 169, 1, 9, muted, "TEMP");
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        label(ui, x + 169, 15, 11, fg, text);
+        label(ui, x + 169, 13, 11, fg, text);
         if (b->battery >= 0) {
-            icon(ui, x + 225, 9, 14, blue, CUI_ICON_BATTERY);
+            icon(ui, x + 225, 7, 14, blue, CUI_ICON_BATTERY);
             snprintf(text, sizeof text, "%d%%", b->battery);
-            label(ui, x + 244, 10, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text);
+            label(ui, x + 244, 8, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text);
         }
     }
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
@@ -764,11 +764,11 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
         if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
     dock_cell(ui, l.bluetooth, 54, CUI_ICON_LINK, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
-    label(ui, l.language + 5, 10, 11, muted, b->language);
-    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
-    icon(ui, l.clock + 5, 10, 12, muted, CUI_ICON_CLOCK);
-    label(ui, l.clock + 22, 9, 11, white, b->clock);
-    icon(ui, l.lock + 7, 9, 14, muted, CUI_ICON_LOCK);
+    label(ui, l.language + 5, 8, 11, muted, b->language);
+    cui_draw_rect(ui, (cui_rect){l.clock, 2, 64, HEIGHT - 4}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
+    icon(ui, l.clock + 5, 8, 12, muted, CUI_ICON_CLOCK);
+    label(ui, l.clock + 22, 7, 11, white, b->clock);
+    icon(ui, l.lock + 7, 7, 14, muted, CUI_ICON_LOCK);
 }
 enum { TIP_NONE, TIP_CPU, TIP_MEMORY, TIP_TEMP, TIP_BATTERY, TIP_SOUND, TIP_NETWORK, TIP_BT, TIP_CLOCK, TIP_LANGUAGE, TIP_LOCK };
 static int hover_kind(const Bar *b, int x) {
