@@ -211,6 +211,10 @@ static void alttab(const Arg *arg);
 static void wallpaperswitcher(const Arg *arg);
 static void togglekeyboardgroup(const Arg *arg);
 static void displaymodeswitcher(const Arg *arg);
+static void dashboardnative(const Arg *arg);
+#ifdef DWM_CUI
+static void dashboardcui(const Arg *arg);
+#endif
 static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h,
@@ -429,6 +433,26 @@ void togglekeyboardgroup(const Arg *arg) {
   if (XkbGetState(dpy, XkbUseCoreKbd, &state) == Success)
     XkbLockGroup(dpy, XkbUseCoreKbd, state.group == 0 ? 1 : 0);
 }
+
+#include "dashboard_backend.h"
+#include "dashboard_native.h"
+
+#ifdef DWM_CUI
+/* Keep the CUI UI in the dwm executable, but run its event loop in a child:
+ * the window manager must remain free to manage its floating window. */
+extern int dashboard_cui_main(void);
+static void
+dashboardcui(const Arg *arg)
+{
+  (void)arg;
+  if (fork() == 0) {
+    close(ConnectionNumber(dpy));
+    setsid();
+    signal(SIGCHLD, SIG_DFL);
+    _exit(dashboard_cui_main());
+  }
+}
+#endif
 
 /* A small native list picker used by the display mode switcher. */
 static int

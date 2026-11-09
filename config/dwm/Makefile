@@ -2,9 +2,22 @@
 # See LICENSE file for copyright and license details.
 
 include config.mk
+.DEFAULT_GOAL := all
 
 SRC = drw.c dwm.c util.c
 OBJ = ${SRC:.c=.o}
+
+# Optional embedded CUI dashboard. Configure/build dashboard/ first; see README.
+ifeq ($(CUI),1)
+CUI_DIR = dashboard/build/_deps/cui-src
+CUI_LIB = dashboard/build/_deps/cui-build/libcui.a
+OBJ += dashboard/cui-embedded.o
+CFLAGS += -DDWM_CUI -I$(CUI_DIR)/include
+LDFLAGS += $(CUI_LIB) -pthread -lm
+
+dashboard/cui-embedded.o: dashboard/dashboard.c dashboard_backend.h $(CUI_LIB)
+	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
+endif
 
 all: dwm
 
@@ -12,6 +25,7 @@ all: dwm
 	${CC} -c ${CFLAGS} $<
 
 ${OBJ}: config.h config.mk
+dwm.o: dashboard_native.h dashboard_backend.h
 
 config.h:
 	cp config.def.h $@
@@ -20,12 +34,13 @@ dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f dwm ${OBJ} dwm-${VERSION}.tar.gz
+	rm -f dwm ${OBJ} dashboard/cui-embedded.o dwm-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p dwm-${VERSION}
 	cp -R LICENSE Makefile README config.def.h config.mk\
-		dwm.1 drw.h util.h ${SRC} dwm.png transient.c dwm-${VERSION}
+		dwm.1 drw.h util.h dashboard_backend.h dashboard_native.h ${SRC} dwm.png transient.c dwm-${VERSION}
+	cp -R dashboard dwm-${VERSION}/
 	tar -cf dwm-${VERSION}.tar dwm-${VERSION}
 	gzip dwm-${VERSION}.tar
 	rm -rf dwm-${VERSION}

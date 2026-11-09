@@ -165,38 +165,43 @@ after a wallpaper is chosen; dwm does not create or overwrite it at startup.
 Dwm does not install dependencies or rebuild itself. Setup failures are
 reported in the session log; startup continues where possible.
 
-CUI control center
-------------------
-Alt+Shift+D opens the optional CUI control center as a floating window.
-It provides Wi-Fi scanning, connection and disconnection, Bluetooth scanning,
-pairing and connection controls, and default-output volume and mute. Escape
-closes it. It uses nmcli (NetworkManager), bluetoothctl (BlueZ), and pactl
-(PulseAudio or PipeWire's PulseAudio compatibility service). These services
-must be running and the desktop user must have permission to control them.
+Control center comparison
+-------------------------
+Two versions are available for testing. Both are compiled into dwm, not
+launched from a separate dashboard executable:
 
-Build separately with CMake, Git, a C compiler, pthreads, and the X11 and
-OpenGL development libraries required by CUI. CMake fetches a pinned CUI
-revision from GitHub. From config/dwm:
+* Alt+Shift+D: native Xlib/Drw popup, like the other dwm switchers. Use
+  Left/Right or Tab to change section, Up/Down to select, Enter to act, and
+  Escape to close. Clicking rows and scrolling are also supported. Select a
+  Bluetooth device first, then select an action further down the list.
+* Ctrl+Alt+Shift+D: CUI version, if built with CUI=1 as described below. Its
+  interface is compiled into dwm; its event loop runs in a forked child with
+  a separate floating X11 window so the window manager remains responsive.
 
-    cmake -S dashboard -B dashboard/build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
-    cmake --build dashboard/build
-    cmake --install dashboard/build
-    make clean install
+Both use nmcli (NetworkManager), bluetoothctl (BlueZ), and pactl (PulseAudio
+or PipeWire's PulseAudio compatibility service). These services must be
+running and the desktop user must have permission to control them. Operations
+run outside dwm's event loop and refresh periodically. Wi-Fi passwords are
+sent through private pipes, not command-line arguments, and cleared after
+submission. The password field supports WPA personal; use NetworkManager's
+connection editor for enterprise credentials or hidden networks. Bluetooth
+pairing requiring PIN or confirmation needs a separate running pairing agent,
+for example Blueman. Backend and permission failures are displayed.
 
-Make sure ~/.local/bin is in dwm's PATH, or install to another PATH directory.
-Rebuild/restart dwm for the binding and floating rule. This does not alter
-existing autostart files. The dashboard can also be launched as
-`dwm-dashboard` directly. It uses the system monospace font via fc-match,
-falling back to CUI's built-in mono; DWM_DASHBOARD_FONT can specify a font
-file. Optional buttons launch nm-connection-editor, blueman-manager, and
-pavucontrol if installed.
+The native version is part of the normal dwm build and needs no extra UI
+library. To additionally build the CUI version, install CMake, Git, a C
+compiler, pthreads, and the X11 development libraries required by CUI. From
+config/dwm, fetch and build the pinned CUI revision, then build dwm:
 
-Wi-Fi passwords are passed through a private stdin pipe, not command-line
-arguments; they are cleared from the dashboard after submission. The password
-field supports WPA personal networks; use Network settings for enterprise
-credentials, hidden networks, or other advanced configurations. Bluetooth
-pairing that requires a PIN or confirmation needs a separate running pairing
-agent (for example Blueman); use Bluetooth settings for interactive pairing.
-The dashboard reports command failures but cannot guarantee pairing support
-without an agent. Device state refreshes periodically; operations run in a
-background worker and may take a few seconds.
+    cmake -S dashboard -B dashboard/build
+    cmake --build dashboard/build --target cui
+    make clean
+    make CUI=1
+    sudo make CUI=1 install
+
+Restart dwm after installation. The CUI version uses the system monospace font
+via fc-match, falling back to CUI's built-in mono; DWM_DASHBOARD_FONT may name
+a font file. Its optional settings buttons launch nm-connection-editor,
+blueman-manager, and pavucontrol when installed. The standalone CUI build
+remains available for independent testing, but is not needed by the binding.
+Existing autostart files are not changed.
