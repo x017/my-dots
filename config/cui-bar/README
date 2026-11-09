@@ -7,7 +7,7 @@ and reserve space on each monitor (up to 16). The tray appears on the first
 monitor because an XEmbed icon can only be hosted by one tray at a time. The
 network, Bluetooth, audio, display mode and calendar control center is built
 into the bar process. Its dashboard and calendar use rounded X Shape corners.
-The panel floats with rounded X Shape corners, an 8px
+The 32px panel floats with rounded X Shape corners, an 8px
 top gap and 10px side gaps; dwm reserves the full top gap plus panel height.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
@@ -30,7 +30,7 @@ Existing autostart files are not changed. Stop an old tray/bar before testing.
 The bar shows temperature, CPU, memory used in GiB, battery, workspace numbers,
 volume, network state and connected Wi-Fi name, Bluetooth state, clock, XEmbed
 tray icons, language, and lock. Hover over the stats or status modules for
-more detail; CPU shows per-logical-CPU usage sampled from /proc/stat (not a
+more detail in square, bar-styled panels; CPU shows per-logical-CPU usage sampled from /proc/stat (not a
 list of process threads), with the first 32 or fewer shown if the screen is
 narrow. Memory is total minus MemAvailable, shown in binary GiB. Long Wi-Fi names are shortened to fit.
 Stats and status come from /proc, /sys, nmcli, bluetoothctl, pactl and XKB.

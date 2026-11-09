@@ -15,7 +15,7 @@ static void style(cui_ctx *ui) {
     t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x121417);
     t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xadbac7);
     t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0x8a949e);
-    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x64778d);
+    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x8a949e);
     t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x1e2025);
     t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x1e2025);
     t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x2d3035);
