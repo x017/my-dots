@@ -121,9 +121,7 @@ static const char *dmenucmd[] = {
 static const char *termcmd[] = {"ghostty", NULL};
 static const char *roficmd[] = {"rofi", "-show", "drun", NULL};
 static const char *powercmd[] = {"mel", "--power", NULL};
-static const char *refreshcmd[] = {"/home/parsa/.local/bin/refreshmenu", NULL};
 static const char *lockcmd[] = {"mel", NULL};
-static const char *changelayoutcmd[] = {"kb-lay-switch", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
     {MODKEY, XK_p, spawn, {.v = roficmd}},
@@ -152,13 +150,13 @@ static const Key keys[] = {
     {MODKEY, XK_equal, setgaps, {.i = +5}},
     {MODKEY | ShiftMask, XK_minus, setgaps, {.i = GAP_RESET}},
     {MODKEY | ShiftMask, XK_equal, setgaps, {.i = GAP_TOGGLE}},
-    {MODKEY | ShiftMask, XK_r, spawn, {.v = refreshcmd}},
+    {MODKEY | ShiftMask, XK_r, displaymodeswitcher, {0}},
     {MODKEY | ShiftMask, XK_w, wallpaperswitcher, {0}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},
     {MODKEY, XK_Up, focusdir, {.i = 2}},
     {MODKEY, XK_Down, focusdir, {.i = 3}},
-    {Mod4Mask, XK_space, spawn, {.v = changelayoutcmd}},
+    {Mod4Mask, XK_space, togglekeyboardgroup, {0}},
     TAGKEYS(XK_1, 0) TAGKEYS(XK_2, 1) TAGKEYS(XK_3, 2) TAGKEYS(XK_4, 3)
         TAGKEYS(XK_5, 4) TAGKEYS(XK_6, 5) TAGKEYS(XK_7, 6) TAGKEYS(XK_8, 7)
             TAGKEYS(XK_9, 8){MODKEY, XK_m, spawn, {.v = powercmd}},

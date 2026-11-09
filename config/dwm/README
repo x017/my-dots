@@ -93,3 +93,46 @@ or .xinitrc. To use another folder, set DWM_WALLPAPERS_DIR to an absolute
 path in the environment before starting dwm. Missing or unreadable folders
 are reported in the popup; create the folder and press R to retry. The
 switcher does not change Hyprland's wallpaper configuration.
+
+Display modes, keyboard layout and wallpaper restore
+----------------------------------------------------
+Alt+Shift+R opens a native dwm popup: select a connected monitor, then a
+resolution and refresh rate reported by xrandr. Arrow keys and Enter or mouse
+clicks select; Escape cancels. A helper `~/.config/dwm/refreshmenu.sh` (or
+the equivalent under XDG_CONFIG_HOME) applies the choice and saves it to
+${XDG_CONFIG_HOME:-$HOME/.config}/refreshrate.conf, compatible with your
+existing file. Run the same script with `--apply` in your autostart to restore
+those modes. Requires xrandr. Copy refreshmenu.sh into ~/.config/dwm and make
+it executable. Running the script by itself still offers the original rofi
+menu, if rofi is installed.
+
+Win+Space now changes the XKB group directly in dwm; it no longer depends on
+`kb-lay-switch`. Configure both layouts once in autostart with:
+
+    setxkbmap -layout us,ir -option ''
+
+Remove the old `-option grp:win_space_toggle` line: binding the same key in
+both XKB and dwm can cause conflicting or double toggles. `-option ''` clears
+other XKB options too; add back any unrelated options you need. The layouts
+can be changed in that command. This requires setxkbmap and XKB; restart dwm
+after rebuilding and updating autostart.
+
+Your old hard-coded `feh --bg-fill ...` autostart line resets the wallpaper
+on every login. Replace it rather than adding another feh command beside it:
+
+    if [ -x "$HOME/.fehbg" ]; then
+        "$HOME/.fehbg" &
+    else
+        feh --bg-fill "$HOME/Downloads/wallpaper/glassmorphsesimjapon.png" &
+    fi
+
+Run this *after* the xrandr positioning and refreshmenu --apply commands.
+The picker uses feh, which writes ~/.fehbg on a successful change. See
+`autostart.example.sh` for an example based on your current setup; merge it
+into your existing dwm autostart instead of running both copies. The example
+assumes the same eDP-1 and HDMI-1 output names as your current setup.
+
+The wallpaper preview now decodes only the highlighted image in a separate,
+cancellable helper and transfers a scaled preview back to dwm. Moving through
+high-resolution files should not block the dwm event loop; applying via feh
+can still take a few seconds for large images.

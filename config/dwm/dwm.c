@@ -21,6 +21,7 @@
  * To understand everything else, start reading main().
  */
 #include <X11/Xatom.h>
+#include <X11/XKBlib.h>
 #include <X11/Xlib.h>
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
@@ -206,6 +207,8 @@ struct Systray {
 /* function declarations */
 static void alttab(const Arg *arg);
 static void wallpaperswitcher(const Arg *arg);
+static void togglekeyboardgroup(const Arg *arg);
+static void displaymodeswitcher(const Arg *arg);
 static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h,
@@ -418,6 +421,167 @@ switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
   return ok && !switcher_xerror_seen;
 }
 
+/* Switch the XKB group directly; unlike an external helper this does not
+ * race an XKB grp:win_space_toggle binding for the same key. */
+void togglekeyboardgroup(const Arg *arg) {
+  XkbStateRec state;
+  (void)arg;
+  if (XkbGetState(dpy, XkbUseCoreKbd, &state) == Success)
+    XkbLockGroup(dpy, XkbUseCoreKbd, state.group == 0 ? 1 : 0);
+}
+
+/* A small native list picker used by the display mode switcher. */
+static int
+displaypick(const char *title, char **items, int count)
+{
+  Monitor *m = selmon;
+  XSetWindowAttributes wa;
+  XEvent ev;
+  Window win;
+  Drw *d;
+  Clr *normal, *selected, *head;
+  const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
+  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
+  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  int width, height, rh, visible, choice = 0, start, i, done = 0, result = -1;
+  KeySym key;
+  if (count <= 0) return -1;
+  if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) return -1;
+  width = MAX(1, MIN(580, m->mw - 20));
+  rh = MAX(30, bh + 6);
+  visible = MAX(1, MIN(count, MIN(10, MAX(1, (m->mh - 4 * rh - 20) / rh))));
+  height = (visible + 3) * rh;
+  wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
+  wa.event_mask = ExposureMask | ButtonPressMask;
+  win = XCreateWindow(dpy, root, m->mx + (m->mw - width) / 2, m->my + (m->mh - height) / 2,
+                      width, height, 1, DefaultDepth(dpy, screen), CopyFromParent,
+                      DefaultVisual(dpy, screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
+  d = drw_create(dpy, screen, root, width, height);
+  drw_fontset_create(d, font, LENGTH(font));
+  normal = drw_scm_create(d, nc, 3); selected = drw_scm_create(d, sc, 3); head = drw_scm_create(d, hc, 3);
+  XSetWindowBorder(dpy, win, head[ColBorder].pixel); XMapRaised(dpy, win);
+  while (!done && running) {
+    start = choice >= visible ? choice - visible + 1 : 0;
+    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 1);
+    drw_text(d, 12, 6, MAX(1, width - 24), rh, 8, title, 0);
+    drw_rect(d, 12, rh + 6, MAX(1, width - 24), 1, 1, 0);
+    for (i = 0; i < visible; i++) {
+      int index = start + i;
+      drw_setscheme(d, index == choice ? selected : normal);
+      drw_text(d, 12, 2 * rh + i * rh, MAX(1, width - 24), rh - 2, 10,
+               index < count ? items[index] : "", 0);
+    }
+    drw_setscheme(d, head);
+    drw_text(d, 12, height - rh, MAX(1, width - 24), rh, 8, "UP/DOWN choose   ENTER select   ESC cancel", 0);
+    drw_map(d, win, 0, 0, width, height);
+    XNextEvent(dpy, &ev);
+    if (ev.type == KeyPress) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Escape) done = 1;
+      else if (key == XK_Down || key == XK_j) choice = (choice + 1) % count;
+      else if (key == XK_Up || key == XK_k) choice = (choice + count - 1) % count;
+      else if (key == XK_Return || key == XK_KP_Enter) { result = choice; done = 1; }
+    } else if (ev.type == ButtonPress && ev.xbutton.window == win) {
+      if (ev.xbutton.button == Button4) choice = (choice + count - 1) % count;
+      else if (ev.xbutton.button == Button5) choice = (choice + 1) % count;
+      else if (ev.xbutton.button == Button1 && ev.xbutton.y >= 2 * rh && ev.xbutton.y < (2 + visible) * rh) {
+        i = start + (ev.xbutton.y - 2 * rh) / rh;
+        if (i < count) { result = i; done = 1; }
+      }
+    } else if (ev.type == ConfigureNotify && ev.xconfigure.window == root) {
+      done = 1; configurenotify(&ev);
+    } else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify &&
+               ev.type != FocusIn && ev.type != KeyRelease && handler[ev.type]) handler[ev.type](&ev);
+  }
+  XDestroyWindow(dpy, win); XUngrabKeyboard(dpy, CurrentTime);
+  drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3); drw_free(d);
+  return result;
+}
+
+/* xrandr is queried without interpolating user input; the companion script
+ * performs and persists the selected setting, also supporting --apply. */
+void displaymodeswitcher(const Arg *arg)
+{
+  FILE *fp;
+  char line[4096], output[256], state[32], mode[64], rate[64], title[320], script[4096];
+  const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+  char **outputs = NULL, **modes = NULL, **rates = NULL, **labels = NULL;
+  int nout = 0, nmode = 0, chosen, selectedmode, active = 0, i;
+  (void)arg;
+  if (config && *config) snprintf(script, sizeof script, "%s/dwm/refreshmenu.sh", config);
+  else if (home && *home) snprintf(script, sizeof script, "%s/.config/dwm/refreshmenu.sh", home);
+  else script[0] = '\0';
+  if (!script[0] || access(script, X_OK)) {
+    char *notice[] = {"Install executable ~/.config/dwm/refreshmenu.sh first."};
+    displaypick("D I S P L A Y S", notice, 1);
+    return;
+  }
+  if (!(fp = popen("LC_ALL=C xrandr --query 2>/dev/null", "r"))) return;
+  while (fgets(line, sizeof line, fp)) {
+    if (line[0] == ' ' || line[0] == '\t') continue;
+    if (sscanf(line, "%255s %31s", output, state) == 2 && !strcmp(state, "connected")) {
+      char **next = realloc(outputs, (nout + 1) * sizeof *outputs);
+      if (!next) die("realloc:");
+      outputs = next; outputs[nout++] = strdup(output);
+      if (!outputs[nout - 1]) die("strdup:");
+    }
+  }
+  pclose(fp);
+  if (!nout) {
+    char *notice[] = {"No connected displays found. Check xrandr."};
+    displaypick("D I S P L A Y S", notice, 1);
+    goto cleanup;
+  }
+  chosen = displaypick("D I S P L A Y S   /   select monitor", outputs, nout);
+  if (chosen < 0 || !(fp = popen("LC_ALL=C xrandr --query 2>/dev/null", "r"))) goto cleanup;
+  while (fgets(line, sizeof line, fp)) {
+    char *token, *save, *end;
+    if (line[0] != ' ' && line[0] != '\t') {
+      active = sscanf(line, "%255s %31s", output, state) == 2 &&
+               !strcmp(output, outputs[chosen]) && !strcmp(state, "connected");
+      continue;
+    }
+    if (!active || !(token = strtok_r(line, " \t\r\n", &save))) continue;
+    {
+      unsigned int w, h; char extra;
+      if (sscanf(token, "%ux%u%c", &w, &h, &extra) != 2 || !w || !h) continue;
+    }
+    snprintf(mode, sizeof mode, "%s", token);
+    while ((token = strtok_r(NULL, " \t\r\n", &save))) {
+      char **next;
+      double value = strtod(token, &end);
+      if (end == token || value <= 0 || strspn(end, "*+") != strlen(end)) continue;
+      *end = '\0'; snprintf(rate, sizeof rate, "%s", token);
+      next = realloc(modes, (nmode + 1) * sizeof *modes); if (!next) die("realloc:"); modes = next;
+      next = realloc(rates, (nmode + 1) * sizeof *rates); if (!next) die("realloc:"); rates = next;
+      next = realloc(labels, (nmode + 1) * sizeof *labels); if (!next) die("realloc:"); labels = next;
+      modes[nmode] = strdup(mode); rates[nmode] = strdup(rate);
+      snprintf(title, sizeof title, "%s   /   %s Hz", mode, rate);
+      labels[nmode] = strdup(title);
+      if (!modes[nmode] || !rates[nmode] || !labels[nmode]) die("strdup:");
+      nmode++;
+    }
+  }
+  pclose(fp);
+  snprintf(title, sizeof title, "R E F R E S H   R A T E   /   %s", outputs[chosen]);
+  if (!nmode) {
+    char *notice[] = {"No display modes reported by xrandr."};
+    displaypick(title, notice, 1);
+    goto cleanup;
+  }
+  selectedmode = displaypick(title, labels, nmode);
+  if (selectedmode >= 0) {
+    const char *cmd[] = {"/bin/sh", "-c", "exec \"${XDG_CONFIG_HOME:-$HOME/.config}/dwm/refreshmenu.sh\" --set \"$1\" \"$2\" \"$3\"", "dwm-refresh", outputs[chosen], modes[selectedmode], rates[selectedmode], NULL};
+    Arg command = {.v = cmd};
+    spawn(&command);
+  }
+cleanup:
+  for (i = 0; i < nout; i++) free(outputs[i]);
+  for (i = 0; i < nmode; i++) { free(modes[i]); free(rates[i]); free(labels[i]); }
+  free(outputs); free(modes); free(rates); free(labels);
+}
+
 /* The picker is native dwm/Xlib like Alt-Tab. Resolve Imlib2 at runtime so
  * dwm still builds and the filenames remain usable if previews are absent. */
 typedef struct {
@@ -432,6 +596,8 @@ typedef struct {
   int (*height)(void);
   void (*render)(int, int, int, int);
   void (*freeimage)(void);
+  void *(*scaled)(int, int, int, int, int, int);
+  void (*save)(const char *);
 } WallpaperImages;
 
 static int
@@ -454,10 +620,72 @@ wallpaperimagesinit(WallpaperImages *api)
   LOADIMLIB(height, "imlib_image_get_height");
   LOADIMLIB(render, "imlib_render_image_on_drawable_at_size");
   LOADIMLIB(freeimage, "imlib_free_image");
+  LOADIMLIB(scaled, "imlib_create_cropped_scaled_image");
+  LOADIMLIB(save, "imlib_save_image");
 #undef LOADIMLIB
   api->display(dpy);
   api->visual(DefaultVisual(dpy, screen));
   api->colormap(DefaultColormap(dpy, screen));
+  return 1;
+}
+
+/* Decode only the currently selected image in a disposable helper. dwm never
+ * waits for a large wallpaper to decode; navigating cancels the old helper. */
+typedef struct {
+  pid_t pid;
+  int fd;
+  char path[64];
+} WallpaperPreview;
+
+static void
+wallpaperpreviewcancel(WallpaperPreview *p)
+{
+  if (p->pid > 0) kill(p->pid, SIGTERM);
+  if (p->fd >= 0) close(p->fd);
+  if (p->path[0]) unlink(p->path);
+  p->pid = 0; p->fd = -1; p->path[0] = '\0';
+}
+
+static int
+wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *source, int maxw, int maxh)
+{
+  int fd, fds[2];
+  pid_t child;
+  wallpaperpreviewcancel(p);
+  if (maxw < 1 || maxh < 1) return 0;
+  snprintf(p->path, sizeof p->path, "/tmp/dwm-wallpaper-XXXXXX.png");
+  fd = mkstemps(p->path, 4);
+  if (fd < 0) { p->path[0] = '\0'; return 0; }
+  close(fd);
+  if (pipe(fds) < 0) { unlink(p->path); p->path[0] = '\0'; return 0; }
+  child = fork();
+  if (child == 0) {
+    void *image, *small;
+    int w, h, swidth, sheight, ok = 0;
+    struct stat st;
+    close(fds[0]);
+    close(ConnectionNumber(dpy));
+    image = api->load(source);
+    if (image) {
+      api->image(image); w = api->width(); h = api->height();
+      if (w > 0 && h > 0) {
+        swidth = maxw; sheight = (int)((double)h * swidth / w);
+        if (sheight > maxh) { sheight = maxh; swidth = (int)((double)w * sheight / h); }
+        small = api->scaled(0, 0, w, h, MAX(1, swidth), MAX(1, sheight));
+        if (small) {
+          api->image(small); api->save(p->path); api->freeimage();
+          if (!stat(p->path, &st) && st.st_size > 0) ok = 1;
+        }
+      }
+      api->image(image); api->freeimage();
+    }
+    (void)write(fds[1], &ok, sizeof ok);
+    close(fds[1]);
+    _exit(0);
+  }
+  close(fds[1]);
+  if (child < 0) { close(fds[0]); unlink(p->path); p->path[0] = '\0'; return 0; }
+  p->pid = child; p->fd = fds[0];
   return 1;
 }
 
@@ -520,18 +748,17 @@ wallpaperscan(const char *dir, size_t *count, char *message, size_t message_size
   return paths;
 }
 
-/* feh exits quickly in normal use. A helper waits for it and reports its exit
- * status through a pipe; dwm's global SIGCHLD policy otherwise reaps children. */
+/* Run feh off the event thread. A helper reports its exit status through a
+ * pipe because dwm normally auto-reaps children. */
 static int
-wallpaperapply(const char *path)
+wallpaperapplystart(const char *path)
 {
-  int fds[2], status = 0, result = 1, ready;
+  int fds[2];
   pid_t helper;
-  fd_set readfds;
-  struct timeval timeout = {5, 0};
-  if (pipe(fds) < 0) return 0;
+  if (pipe(fds) < 0) return -1;
   helper = fork();
   if (helper == 0) {
+    int status, result = 1;
     pid_t child;
     close(fds[0]);
     close(ConnectionNumber(dpy));
@@ -548,12 +775,8 @@ wallpaperapply(const char *path)
     _exit(0);
   }
   close(fds[1]);
-  if (helper < 0) { close(fds[0]); return 0; }
-  FD_ZERO(&readfds); FD_SET(fds[0], &readfds);
-  do { ready = select(fds[0] + 1, &readfds, NULL, NULL, &timeout); } while (ready < 0 && errno == EINTR);
-  if (ready <= 0 || read(fds[0], &result, sizeof result) != sizeof result) result = 1;
-  close(fds[0]);
-  return result == 0;
+  if (helper < 0) { close(fds[0]); return -1; }
+  return fds[0];
 }
 
 void wallpaperswitcher(const Arg *arg)
@@ -573,7 +796,8 @@ void wallpaperswitcher(const Arg *arg)
   char *directory, **paths, *base, message[512], line[512];
   size_t count = 0, choice = 0, start, row;
   int width, height, rh, header, listw, previewx, previeww, previewh, visible, done = 0;
-  int imlib, imagewidth, imageheight, pw, ph;
+  int imlib, imagewidth, imageheight, pw, ph, preview_failed = 0, applyfd = -1;
+  WallpaperPreview worker = {0, -1, ""};
   void *image = NULL;
   size_t loaded = (size_t)-1;
   WallpaperImages api;
@@ -611,8 +835,9 @@ void wallpaperswitcher(const Arg *arg)
   XSetWindowBorder(dpy, popup, head[ColBorder].pixel); XMapRaised(dpy, popup);
   while (!done && running) {
     if (count && loaded != choice) {
+      wallpaperpreviewcancel(&worker);
       if (image) { api.image(image); api.freeimage(); image = NULL; }
-      if (imlib) image = api.load(paths[choice]);
+      preview_failed = !imlib || !wallpaperpreviewstart(&worker, &api, paths[choice], previeww - 16, previewh - 16);
       loaded = choice;
     }
     start = count && choice >= (size_t)visible ? choice - visible + 1 : 0;
@@ -645,7 +870,7 @@ void wallpaperswitcher(const Arg *arg)
       } else {
         drw_setscheme(d, normal);
         drw_text(d, previewx, header + rh, previeww, rh, 12,
-                 !imlib ? "Install Imlib2 for image previews" : count ? "Preview unavailable for this image" : "Select a wallpaper", 0);
+                 !imlib ? "Install Imlib2 for image previews" : !count ? "Select a wallpaper" : preview_failed ? "Preview unavailable for this image" : "Loading preview...", 0);
       }
       drw_setscheme(d, selected);
       drw_text(d, previewx, height - 2 * rh - 8, previeww, rh, 12, "SET WALLPAPER  /  ENTER", 0);
@@ -653,11 +878,39 @@ void wallpaperswitcher(const Arg *arg)
     drw_setscheme(d, head);
     drw_text(d, 16, height - rh - 4, MAX(1, width - 32), rh, 4, message, 0);
     drw_map(d, popup, 0, 0, width, height);
+    /* Wait for X input, preview completion or feh without freezing dwm. */
+    if (!XPending(dpy) && (worker.fd >= 0 || applyfd >= 0)) {
+      fd_set fds;
+      int xfd = ConnectionNumber(dpy), ready, maxfd = xfd;
+      FD_ZERO(&fds); FD_SET(xfd, &fds);
+      if (worker.fd >= 0) { FD_SET(worker.fd, &fds); maxfd = MAX(maxfd, worker.fd); }
+      if (applyfd >= 0) { FD_SET(applyfd, &fds); maxfd = MAX(maxfd, applyfd); }
+      ready = select(maxfd + 1, &fds, NULL, NULL, NULL);
+      if (ready < 0) { if (errno == EINTR) continue; done = 1; continue; }
+      if (applyfd >= 0 && FD_ISSET(applyfd, &fds)) {
+        int result = 1;
+        if (read(applyfd, &result, sizeof result) != sizeof result) result = 1;
+        close(applyfd); applyfd = -1;
+        if (result == 0) done = 1;
+        else snprintf(message, sizeof message, "Could not apply. Check feh and the selected image.");
+        continue;
+      }
+      if (worker.fd >= 0 && FD_ISSET(worker.fd, &fds)) {
+        int ok = 0;
+        if (read(worker.fd, &ok, sizeof ok) != sizeof ok) ok = 0;
+        close(worker.fd); worker.fd = -1; worker.pid = 0;
+        if (ok) image = api.load(worker.path);
+        preview_failed = !image;
+        unlink(worker.path); worker.path[0] = '\0';
+        continue;
+      }
+    }
     XNextEvent(dpy, &ev);
     if (ev.type == KeyPress) {
       key = XLookupKeysym(&ev.xkey, 0);
       if (key == XK_Escape) done = 1;
       else if (key == XK_r || key == XK_R) {
+        wallpaperpreviewcancel(&worker);
         if (image) { api.image(image); api.freeimage(); image = NULL; }
         wallpaperfree(paths, count);
         paths = wallpaperscan(directory, &count, message, sizeof message);
@@ -667,8 +920,10 @@ void wallpaperswitcher(const Arg *arg)
       else if (count && key == XK_Home) choice = 0;
       else if (count && key == XK_End) choice = count - 1;
       else if (count && (key == XK_Return || key == XK_KP_Enter)) {
-        if (wallpaperapply(paths[choice])) done = 1;
-        else snprintf(message, sizeof message, "Failed or timed out. Check feh and the selected image.");
+        if (applyfd < 0) {
+          applyfd = wallpaperapplystart(paths[choice]);
+          snprintf(message, sizeof message, "%s", applyfd < 0 ? "Could not start feh." : "Applying wallpaper...");
+        }
       }
     } else if (ev.type == ButtonPress && ev.xbutton.window == popup) {
       int x = ev.xbutton.x, y = ev.xbutton.y;
@@ -678,14 +933,18 @@ void wallpaperswitcher(const Arg *arg)
         size_t i = start + (y - header) / rh;
         if (i < count) choice = i;
       } else if (count && ev.xbutton.button == Button1 && previeww > 0 && x >= previewx && x < previewx + previeww && y >= height - 2 * rh - 8 && y < height - rh - 8) {
-        if (wallpaperapply(paths[choice])) done = 1;
-        else snprintf(message, sizeof message, "Failed or timed out. Check feh and the selected image.");
+        if (applyfd < 0) {
+          applyfd = wallpaperapplystart(paths[choice]);
+          snprintf(message, sizeof message, "%s", applyfd < 0 ? "Could not start feh." : "Applying wallpaper...");
+        }
       }
     } else if (ev.type == ConfigureNotify && ev.xconfigure.window == root) {
       done = 1; configurenotify(&ev);
     } else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify &&
                ev.type != FocusIn && ev.type != KeyRelease && handler[ev.type]) handler[ev.type](&ev);
   }
+  wallpaperpreviewcancel(&worker);
+  if (applyfd >= 0) close(applyfd);
   if (image) { api.image(image); api.freeimage(); }
   if (imlib) dlclose(api.library);
   XDestroyWindow(dpy, popup); XUngrabKeyboard(dpy, CurrentTime);
