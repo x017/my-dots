@@ -10,7 +10,8 @@ int main(void) {
     for (i = 0; i < sizeof widths / sizeof widths[0]; i++) {
         b.width = widths[i]; b.current = 0; l = layout(&b);
         assert(l.tray == b.width - RIGHT_MODULES(b.width) - b.tray_width);
-        assert(l.audio == l.tray + b.tray_width + 4);
+        assert(l.dashboard == l.tray + b.tray_width + 4);
+        assert(l.audio == l.dashboard + 36);
         assert(l.network == l.audio + 66);
         assert(l.bluetooth == l.network + l.network_width + 4);
         assert(l.tags + b.tag_count * 28 <= l.tray - 4);
@@ -20,6 +21,13 @@ int main(void) {
             assert(stats_x + 290 <= l.tray);
         }
         assert(l.lock + 28 <= b.width - PAD);
+        if (l.island_width) {
+            assert(l.island >= l.tags + b.tag_count * 28 + 8);
+            assert(l.island + l.island_width <= l.tray - 6);
+            if (l.stats) assert(l.island >= l.tags + b.tag_count * 28 + 22 + 296);
+            assert(hover_kind(&b, l.island) == TIP_ISLAND);
+        }
+        assert(hover_kind(&b, l.dashboard) == TIP_DASHBOARD);
     }
     b.network_available = 1; b.ethernet = 1;
     assert(!strcmp(network_label(&b), "Ethernet"));

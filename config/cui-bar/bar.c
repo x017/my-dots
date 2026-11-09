@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
+#include "island.h"
 
 #define HEIGHT 28
 #define TOP_GAP 8
@@ -41,7 +42,7 @@
 #define PAD 8
 #define BUTTON_WIDTH 92
 #define NET_WIDTH(width) ((width) >= 850 ? 166 : 106)
-#define RIGHT_MODULES(width) (336 + NET_WIDTH(width) - 62)
+#define RIGHT_MODULES(width) (372 + NET_WIDTH(width) - 62)
 #define TRAY_PAD 8
 #define XEMBED_EMBEDDED_NOTIFY 0
 #define XEMBED_WINDOW_ACTIVATE 1
@@ -70,7 +71,8 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
-    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar;
+    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications;
+    int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
     Window tooltip; cui_ctx *tooltip_ui; int tooltip_kind, tooltip_panel, tooltip_width, tooltip_height;
 } Bar;
@@ -116,7 +118,7 @@ static int icon_mapped(Bar *b, Window w) {
 }
 static void position_icons(Bar *b) {
     int i, n = 0, x;
-    int limit = (b->width - (24 + b->tag_count * 28 + RIGHT_MODULES(b->width))) / ICON_SLOT;
+    int limit = (b->width - (24 + b->tag_count * 28 + RIGHT_MODULES(b->width) + 120)) / ICON_SLOT;
     if (limit < 0) limit = 0;
     if (limit > 8) limit = 8;
     for (i = 0; i < b->count; i++) if (b->icons[i].mapped && n < limit) n++;
@@ -252,6 +254,39 @@ static int start_worker(Bar *b) {
     if (child < 0) { close(fd[0]); return 0; }
     fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
     b->worker_fd = fd[0]; return 1;
+}
+static void read_stats(Bar *b);
+static double island_now(void) {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1000000000.0;
+}
+static int start_island(Bar *b) {
+    int fd[2]; pid_t child;
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fd) < 0) return 0;
+    fcntl(fd[0], F_SETFD, FD_CLOEXEC); fcntl(fd[1], F_SETFD, FD_CLOEXEC);
+    child = fork();
+    if (child == 0) {
+        close(fd[0]); close(ConnectionNumber(b->dpy));
+        if (b->worker_fd >= 0) close(b->worker_fd);
+        island_worker(fd[1]);
+    }
+    close(fd[1]);
+    if (child < 0) { close(fd[0]); return 0; }
+    fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
+    b->island_fd = fd[0]; return 1;
+}
+static void island_action(Bar *b, int action) {
+    if (b->island_fd >= 0 && send(b->island_fd, &action, sizeof action, MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof action)
+        fprintf(stderr, "cui-bar: could not queue media action\n");
+}
+static void next_keyboard_layout(Bar *b) {
+    XkbStateRec state; XkbDescPtr keyboard = XkbGetMap(b->dpy, 0, XkbUseCoreKbd);
+    if (!keyboard) return;
+    if (XkbGetControls(b->dpy, XkbAllControlsMask, keyboard) == Success && keyboard->ctrls && keyboard->ctrls->num_groups > 1 &&
+        XkbGetState(b->dpy, XkbUseCoreKbd, &state) == Success)
+        XkbLockGroup(b->dpy, XkbUseCoreKbd, (state.group + 1) % keyboard->ctrls->num_groups);
+    XkbFreeKeyboard(keyboard, XkbAllComponentsMask, True);
+    XSync(b->dpy, False); read_stats(b);
 }
 static void audio_action(Bar *b, Action type, int value) {
     Request req = {0};
@@ -500,8 +535,8 @@ static void close_popup(Bar *b) {
 static void open_popup(Bar *b, int page) {
     XSetWindowAttributes attr; cui_renderer_iface iface;
     Panel *p = &b->panels[b->current];
-    int max_width = page == 4 ? 360 : 490;
-    int max_height = page == 4 ? 340 : 650;
+    int max_width = page == 4 ? 360 : page == 6 ? 400 : 490;
+    int max_height = page == 4 ? 340 : page == 6 ? 480 : 650;
     int width = p->width < max_width ? p->width : max_width;
     int height = p->height - HEIGHT - 12;
     if (height > max_height) height = max_height;
@@ -522,8 +557,8 @@ static void open_popup(Bar *b, int page) {
     cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
     b->popup_width = width; b->popup_height = height;
-    memset(&popup_state, 0, sizeof popup_state); popup_state.page = page;
-    popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4;
+    memset(&popup_state, 0, sizeof popup_state); popup_state.page = page == 5 ? 4 : page;
+    popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4; b->popup_notifications = page == 6;
     XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
     if (XGrabKeyboard(b->dpy, b->popup, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
         fprintf(stderr, "cui-bar: cannot grab keyboard for control center\n"); close_popup(b); return;
@@ -569,6 +604,44 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
         }
     }
 }
+static void notifications_page(cui_ctx *ui, Bar *b) {
+    int i;
+    cui_scroll(ui, .id = "notifications", .width = CUI_FILL, .height = CUI_FILL, .pad = 14, .gap = 10) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            cui_column(ui, .width = CUI_FILL, .gap = 3) {
+                cui_text(ui, "Notifications", .font = CUI_FONT_MEDIUM, .size = 18);
+                cui_secondary(ui, "Recent history from Dunst");
+            }
+            if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+        }
+        if (b->island.player_available) cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 8) {
+            cui_text(ui, b->island.title, .font = CUI_FONT_MEDIUM, .size = 14);
+            if (b->island.artist[0]) cui_secondary(ui, b->island.artist);
+            cui_row(ui, .gap = 8) {
+                if (cui_button(ui, "Previous", .icon = CUI_ICON_SKIP_BACK, .size = CUI_SIZE_SM)) island_action(b, ISLAND_PREVIOUS);
+                if (cui_button(ui, b->island.playing ? "Pause" : "Play", .icon = b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY, .size = CUI_SIZE_SM)) island_action(b, ISLAND_TOGGLE);
+                if (cui_button(ui, "Next", .icon = CUI_ICON_SKIP_FORWARD, .size = CUI_SIZE_SM)) island_action(b, ISLAND_NEXT);
+            }
+        }
+        if (!b->island.notifications_available) cui_card(ui, .width = CUI_FILL, .pad = 14) {
+            cui_secondary(ui, "Dunst history unavailable. Install and run dunst with dunstctl.");
+        }
+        else if (!b->island.history_count) cui_card(ui, .width = CUI_FILL, .pad = 14) {
+            cui_secondary(ui, "No notifications in history yet.");
+        }
+        else if (!b->island.notice_count) cui_card(ui, .width = CUI_FILL, .pad = 14) {
+            cui_secondary(ui, "History details are unavailable; check dunstctl and busctl.");
+        }
+        for (i = 0; i < b->island.notice_count; i++) {
+            const IslandNotice *n = &b->island.notices[i];
+            cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 5) {
+                cui_text(ui, n->app[0] ? n->app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
+                cui_text(ui, n->title[0] ? n->title : "Notification", .font = CUI_FONT_MEDIUM, .size = 14);
+                if (n->body[0]) cui_text(ui, n->body, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+        }
+    }
+}
 static int draw_popup(Bar *b) {
     XImage *image;
     cui_ctx *ui = b->popup_ui;
@@ -590,6 +663,8 @@ static int draw_popup(Bar *b) {
                 if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
             }
         }
+    } else if (b->popup_notifications) {
+        notifications_page(ui, b);
     } else {
         if (dashboard_shell(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy)) b->popup_page = -1;
     }
@@ -646,7 +721,7 @@ static void popup_event(Bar *b, XEvent *e) {
 
 /* A left-hand workspace rail, optional telemetry, then a compact control dock.
  * The same geometry drives painting, hit testing and tray placement. */
-typedef struct { int stats, tags, audio, network, network_width, bluetooth, tray, clock, language, lock; } Layout;
+typedef struct { int stats, tags, audio, dashboard, network, network_width, bluetooth, tray, clock, language, lock, island, island_width; } Layout;
 static Layout layout(const Bar *b) {
     Layout l; int right = b->width - PAD;
     l.lock = right - 28; right = l.lock - 4;
@@ -656,9 +731,20 @@ static Layout layout(const Bar *b) {
     l.network_width = NET_WIDTH(b->width);
     l.network = right - l.network_width; right = l.network - 4;
     l.audio = right - 62; right = l.audio - 4;
+    l.dashboard = right - 32; right = l.dashboard - 4;
     l.tray = right - (b->current == 0 ? b->tray_width : 0);
     l.tags = 10;
-    l.stats = l.tray - (l.tags + b->tag_count * 28) >= 320;
+    {
+        int left = l.tags + b->tag_count * 28 + 8, right_limit = l.tray - 6;
+        l.stats = right_limit - left >= 470;
+        if (l.stats) left = l.tags + b->tag_count * 28 + 22 + 296;
+        l.island_width = right_limit - left;
+        if (l.island_width > 320) l.island_width = 320;
+        if (l.island_width < 28) l.island_width = 0;
+        l.island = (b->width - l.island_width) / 2;
+        if (l.island < left) l.island = left;
+        if (l.island + l.island_width > right_limit) l.island = right_limit - l.island_width;
+    }
     return l;
 }
 static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const char *text) {
@@ -700,6 +786,55 @@ static const char *network_label(const Bar *b) {
     }
     return b->ethernet ? "Ethernet" : "Offline";
 }
+/* Center island stays inside the free interval between the rails. */
+static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
+    int x = l.island, w = l.island_width, text_left, text_width, controls;
+    char text[512]; cui_color white = CUI_RGB(0xe9eff6), muted = CUI_RGB(0x8a949e);
+    double now = island_now();
+    if (!w) return;
+    cui_draw_rect_border(ui, (cui_rect){x, 2, w, 24}, CUI_CORNERS(12), CUI_RGB(0x181a1e), CUI_RGB(0x2d3035), 1);
+    icon(ui, x + 7, 7, 13, b->island.notifications_available ? white : muted, CUI_ICON_BELL);
+    if (b->island.notifications_available && (b->island.active_count || b->island.history_count) && w >= 120) {
+        int count = b->island.active_count ? b->island.active_count : b->island.history_count;
+        snprintf(text, sizeof text, "%d", count > 99 ? 99 : count);
+        label(ui, x + 23, 8, 10, white, text);
+    }
+    if (w < 100) return;
+    controls = x + w - 62;
+    icon(ui, controls, 8, 12, b->island.player_available ? white : muted, CUI_ICON_SKIP_BACK);
+    icon(ui, controls + 20, 7, 14, b->island.player_available ? white : muted, b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY);
+    icon(ui, controls + 41, 8, 12, b->island.player_available ? white : muted, CUI_ICON_SKIP_FORWARD);
+    text_left = x + (w >= 120 ? 45 : 27);
+    if (w >= 160 && b->island.player_available && b->island.playing) {
+        int i, tick = (int)(now * 8);
+        for (i = 0; i < 3; i++) {
+            int h = 3 + ((tick + i * 3) % 5);
+            cui_draw_rect(ui, (cui_rect){text_left + i * 3, 18 - h, 2, h}, CUI_CORNERS(1), white);
+        }
+        text_left += 13;
+    }
+    text_width = controls - text_left - 6;
+    if (text_width < 12) return;
+    if (b->island_notice_until > now && b->island_live) snprintf(text, sizeof text, "New notification");
+    else if (b->island_notice_until > now && b->island.notice_count)
+        snprintf(text, sizeof text, "%s: %s", b->island.notices[0].app[0] ? b->island.notices[0].app : "Notification", b->island.notices[0].title);
+    else if (b->island.player_available)
+        snprintf(text, sizeof text, "%s%s%s", b->island.artist, b->island.artist[0] ? "  /  " : "", b->island.title);
+    else snprintf(text, sizeof text, "%s", b->island.notifications_available ? "No music playing" : "No player / Dunst");
+    {
+        int full = (int)cui_measure_text(ui, CUI_FONT_MONO, 11, text, -1).width;
+        int offset = 0;
+        if (full > text_width && (b->island.playing || b->island_notice_until > now)) {
+            /* Slow, clipped marquee with a pause at each end; never slice UTF-8. */
+            int overflow = full - text_width, phase = (int)(now * 12) % (overflow + 36);
+            offset = phase < 18 ? 0 : phase - 18;
+            if (offset > overflow) offset = overflow;
+        }
+        cui_push_clip(ui, (cui_rect){text_left, 4, text_width, HEIGHT - 8});
+        label(ui, text_left - offset, 8, 11, white, text);
+        cui_pop_clip(ui);
+    }
+}
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[160];
     cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x8a949e), blue = CUI_RGB(0x7fa8c9), white = CUI_RGB(0xe9eff6);
@@ -735,9 +870,11 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
             label(ui, x + 245, 8, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text);
         }
     }
+    paint_island(ui, b, l);
     /* A unified status dock with subtle separators keeps click targets distinct. */
-    cui_draw_rect(ui, (cui_rect){l.audio - 2, 3, l.lock + 28 - l.audio + 2, 22}, CUI_CORNERS(8), CUI_RGB(0x121417));
-    divider(ui, l.network - 2); divider(ui, l.bluetooth - 2);
+    cui_draw_rect(ui, (cui_rect){l.dashboard - 2, 3, l.lock + 28 - l.dashboard + 2, 22}, CUI_CORNERS(8), CUI_RGB(0x121417));
+    icon(ui, l.dashboard + 9, 7, 14, blue, CUI_ICON_LAYOUT_DASHBOARD);
+    divider(ui, l.audio - 2); divider(ui, l.network - 2); divider(ui, l.bluetooth - 2);
     divider(ui, l.language - 2); divider(ui, l.clock - 2); divider(ui, l.lock - 2);
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
     dock_cell(ui, l.audio, 62, b->snapshot.muted ? CUI_ICON_VOLUME_X : CUI_ICON_VOLUME_2, text, blue);
@@ -752,13 +889,15 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     label(ui, l.clock + 22, 8, 11, white, b->clock);
     icon(ui, l.lock + 7, 7, 14, muted, CUI_ICON_LOCK);
 }
-enum { TIP_NONE, TIP_CPU, TIP_MEMORY, TIP_TEMP, TIP_BATTERY, TIP_SOUND, TIP_NETWORK, TIP_BT, TIP_CLOCK, TIP_LANGUAGE, TIP_LOCK };
+enum { TIP_NONE, TIP_CPU, TIP_MEMORY, TIP_TEMP, TIP_BATTERY, TIP_SOUND, TIP_NETWORK, TIP_BT, TIP_CLOCK, TIP_LANGUAGE, TIP_LOCK, TIP_DASHBOARD, TIP_ISLAND };
 static int hover_kind(const Bar *b, int x) {
     Layout l = layout(b); int sx = l.tags + b->tag_count * 28 + 22;
     if (l.stats && x >= sx && x < sx + 75) return TIP_CPU;
     if (l.stats && x >= sx + 75 && x < sx + 150) return TIP_MEMORY;
     if (l.stats && x >= sx + 150 && x < sx + 225) return TIP_TEMP;
     if (l.stats && b->battery >= 0 && x >= sx + 225 && x < sx + 295) return TIP_BATTERY;
+    if (l.island_width && x >= l.island && x < l.island + l.island_width) return TIP_ISLAND;
+    if (x >= l.dashboard && x < l.dashboard + 32) return TIP_DASHBOARD;
     if (x >= l.audio && x < l.audio + 62) return TIP_SOUND;
     if (x >= l.network && x < l.network + l.network_width) return TIP_NETWORK;
     if (x >= l.bluetooth && x < l.bluetooth + 54) return TIP_BT;
@@ -788,6 +927,8 @@ static void paint_tooltip(cui_ctx *ui, cui_rect r, void *user) {
     case TIP_BT: glyph = CUI_ICON_LINK; break;
     case TIP_CLOCK: glyph = CUI_ICON_CLOCK; break;
     case TIP_LOCK: glyph = CUI_ICON_LOCK; break;
+    case TIP_DASHBOARD: glyph = CUI_ICON_LAYOUT_DASHBOARD; break;
+    case TIP_ISLAND: glyph = CUI_ICON_BELL; break;
     default: glyph = NULL; break;
     }
     /* Square, bar-colored shell with the same inset surface as the bar cells. */
@@ -826,7 +967,9 @@ static void paint_tooltip(cui_ctx *ui, cui_rect r, void *user) {
         case TIP_NETWORK: title = "Network"; detail = network_label(b); break;
         case TIP_BT: title = "Bluetooth"; detail = !b->snapshot.bluetooth_available ? "Controller unavailable" : b->snapshot.bluetooth_enabled ? "On / click to manage devices" : "Off / right-click to enable"; break;
         case TIP_CLOCK: title = "Date & time"; { time_t now = time(NULL); struct tm tm; localtime_r(&now, &tm); strftime(line, sizeof line, "%A, %d %B %Y  /  %H:%M", &tm); detail = line; } break;
-        case TIP_LANGUAGE: title = "Keyboard layout"; detail = b->language; break;
+        case TIP_LANGUAGE: title = "Keyboard layout"; snprintf(line, sizeof line, "%s  /  click to cycle layouts", b->language); detail = line; break;
+        case TIP_DASHBOARD: title = "Control center"; detail = "Click: dashboard  /  right-click: notifications"; break;
+        case TIP_ISLAND: title = "Music & notifications"; if (b->island.notifications_available) snprintf(line, sizeof line, "%d active, %d in history  /  click to view", b->island.active_count, b->island.history_count); else strcpy(line, "Dunst history unavailable  /  click for details"); detail = line; break;
         case TIP_LOCK: title = "Lock screen"; detail = "Click to lock"; break;
         }
         label(ui, glyph ? 34 : 14, 12, 14, fg, title);
@@ -900,6 +1043,20 @@ static void clicked(Bar *b, XButtonEvent *e) {
     Layout l = layout(b); int x = e->x;
     if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.tray - 4 && x >= l.tags && x < l.tags + b->tag_count * 28 && e->button == Button1)
         send_command(b, 1, 1l << ((x - l.tags) / 28), b->panels[b->current].id);
+    else if (l.island_width && x >= l.island && x < l.island + l.island_width && e->button == Button1) {
+        int relative = x - l.island;
+        if (l.island_width >= 100 && relative >= l.island_width - 66) {
+            if (b->island.player_available) {
+                int button = relative - (l.island_width - 66);
+                island_action(b, button < 21 ? ISLAND_PREVIOUS : button < 42 ? ISLAND_TOGGLE : ISLAND_NEXT);
+            }
+        } else open_popup(b, 6);
+    }
+    else if (x >= l.dashboard && x < l.dashboard + 32) {
+        if (e->button == Button1) open_popup(b, 5);
+        else if (e->button == Button3) open_popup(b, 6);
+    }
+    else if (x >= l.language && x < l.language + 34 && e->button == Button1) next_keyboard_layout(b);
     else if (x >= l.audio && x < l.audio + 62) {
         if (e->button == Button1) open_popup(b, 2);
         else if (e->button == Button3 && b->snapshot.audio_available) audio_action(b, ACT_AUDIO_MUTE, 0);
@@ -926,7 +1083,7 @@ int main(void) {
     Bar b = {0}; XSetWindowAttributes attr; WorkerFrame incoming; size_t received = 0;
     time_t next_stats = 0; int dirty = 1, i, result = 0;
     cui_renderer_iface iface;
-    b.worker_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
+    b.worker_fd = b.island_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
     b.tag_count = 9; strcpy(b.clock, "--:--"); strcpy(b.language, "--");
     signal(SIGINT, terminate); signal(SIGTERM, terminate); signal(SIGCHLD, SIG_IGN); signal(SIGPIPE, SIG_IGN);
     b.dpy = XOpenDisplay(NULL);
@@ -968,6 +1125,7 @@ int main(void) {
         send_command(&b, 2, (long)b.win, b.panels[0].id);
     } else fprintf(stderr, "cui-bar: waiting for dwm's version 2 monitor IPC; rebuild and restart dwm if it does not appear\n");
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
+    if (!start_island(&b)) fprintf(stderr, "cui-bar: could not start island worker\n");
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
         struct timeval timeout; time_t now = time(NULL);
@@ -986,11 +1144,30 @@ int main(void) {
         if (b.popup && b.popup_dirty) { if (!draw_popup(&b)) close_popup(&b); b.popup_dirty = 0; }
         FD_ZERO(&fds); FD_SET(xfd, &fds);
         if (b.worker_fd >= 0) { FD_SET(b.worker_fd, &fds); if (b.worker_fd > maxfd) maxfd = b.worker_fd; }
+        if (b.island_fd >= 0) { FD_SET(b.island_fd, &fds); if (b.island_fd > maxfd) maxfd = b.island_fd; }
         timeout.tv_sec = next_stats > now ? next_stats - now : 0; timeout.tv_usec = 0;
-        if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
+        if ((b.island.playing || b.island_notice_until > island_now()) && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 125000; }
+        else if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
         ready = XPending(b.dpy) ? 0 : select(maxfd + 1, &fds, NULL, NULL, &timeout);
         if (ready == 0 && b.popup) b.popup_dirty = 1;
+        if (ready == 0 && (b.island.playing || b.island_notice_until > island_now())) dirty = 1;
         if (ready < 0 && errno != EINTR) { fprintf(stderr, "cui-bar: select: %s\n", strerror(errno)); result = 1; break; }
+        if (ready > 0 && b.island_fd >= 0 && FD_ISSET(b.island_fd, &fds)) {
+            IslandFrame next; ssize_t n = recv(b.island_fd, &next, sizeof next, 0);
+            if (n == sizeof next) {
+                if (b.island_initialized && next.notifications_available && b.island.notifications_available) {
+                    if (next.notice_count && (next.history_count > b.island.history_count ||
+                        (b.island.notice_count && (strcmp(next.notices[0].title, b.island.notices[0].title) || strcmp(next.notices[0].app, b.island.notices[0].app))))) {
+                        b.island_notice_until = island_now() + 7; b.island_live = 0;
+                    } else if (next.active_count > b.island.active_count) {
+                        b.island_notice_until = island_now() + 7; b.island_live = 1;
+                    }
+                }
+                b.island = next; b.island_initialized = 1; dirty = 1;
+            } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
+                close(b.island_fd); b.island_fd = -1; memset(&b.island, 0, sizeof b.island); dirty = 1;
+            }
+        }
         if (ready > 0 && b.worker_fd >= 0 && FD_ISSET(b.worker_fd, &fds)) {
             ssize_t n = read(b.worker_fd, (char *)&incoming + received, sizeof incoming - received);
             if (n > 0) {
@@ -1015,7 +1192,7 @@ int main(void) {
             else if (e.type == LeaveNotify && panel_index(&b, e.xcrossing.window) >= 0) close_tooltip(&b);
             else if (e.type == Expose && panel_index(&b, e.xexpose.window) >= 0 && e.xexpose.count == 0) dirty = 1;
             else if (e.type == ButtonPress && (index = panel_index(&b, e.xbutton.window)) >= 0) {
-                close_tooltip(&b); use_panel(&b, index); clicked(&b, &e.xbutton); use_panel(&b, 0);
+                close_tooltip(&b); use_panel(&b, index); clicked(&b, &e.xbutton); use_panel(&b, 0); dirty = 1;
             }
             else if (e.type == ClientMessage && e.xclient.window == b.win && e.xclient.message_type == b.opcode && e.xclient.data.l[1] == 0) {
                 dock(&b, (Window)e.xclient.data.l[2]); dirty = 1;
@@ -1041,6 +1218,7 @@ cleanup:
     close_tooltip(&b);
     close_popup(&b);
     if (b.worker_fd >= 0) close(b.worker_fd);
+    if (b.island_fd >= 0) close(b.island_fd);
     if (b.selection && XGetSelectionOwner(b.dpy, b.selection) == b.win) XSetSelectionOwner(b.dpy, b.selection, None, CurrentTime);
     for (i = 0; i < b.count; i++) {
         XReparentWindow(b.dpy, b.icons[i].win, b.root, 0, 0);

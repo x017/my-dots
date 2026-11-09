@@ -10,7 +10,7 @@ into the bar process. Its dashboard and calendar use rounded X Shape corners.
 The 28px panel floats with rounded X Shape corners, an 8px
 top gap and 10px side gaps; dwm reserves the full top gap plus panel height.
 A compact workspace rail and telemetry strip sit on the left, with a unified
-status dock on the right and open space in between.
+status dock on the right and a centered music / notification island in between.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
 headers/libraries required):
@@ -46,7 +46,24 @@ render loop is required. The open control popup refreshes four times per
 second for interaction and animations. Narrow screens hide the left stats
 when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
-Click a workspace to view it on that monitor. Click volume, network or
+The island uses `playerctl` and an MPRIS-compatible player for track metadata
+and previous/play-pause/next controls. Long titles scroll, and the small bars
+animate while playing. Clicking the bell or track opens a panel with media
+controls and recent notifications. The notification part integrates with a
+running Dunst daemon via `dunstctl` (and `busctl` for history); it does not
+start or replace a notification daemon. The number is displayed/waiting
+notifications when present, otherwise the size of Dunst's history, not an
+unread count. Dunst reports history after notifications leave the screen, so
+new arrivals initially show a generic alert and their details appear in history
+afterward. Other notification daemons are not currently supported. If Dunst or
+playerctl is missing, the corresponding feature is shown as unavailable. On
+narrow monitors the island shrinks; right-click the dashboard button to open
+its notification/media panel if the island cannot fit. Tray capacity may shrink
+to preserve room for it.
+
+Click the grid button to open the dashboard, or click the keyboard layout to
+cycle through the XKB layouts actually configured in the session. Click a
+workspace to view it on that monitor. Click volume, network or
 Bluetooth to open the bar's integrated CUI control popup on that monitor. Click
 the clock to open its calendar, with previous, next and today controls.
 The popup has an Overview with a prominent volume control, Wi-Fi and Bluetooth
