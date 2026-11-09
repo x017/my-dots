@@ -81,6 +81,7 @@ static const Rule rules[] = {
     {NULL, "pavucontrol", NULL, 0, 1, -1},
     {NULL, "blueberry", NULL, 0, 1, -1},
     {NULL, "nm-connection-editor", NULL, 0, 1, -1},
+    {NULL, "Dwm Control Center", NULL, 0, 1, -1},
 };
 
 /* layout(s) */
@@ -122,6 +123,7 @@ static const char *termcmd[] = {"ghostty", NULL};
 static const char *roficmd[] = {"rofi", "-show", "drun", NULL};
 static const char *powercmd[] = {"mel", "--power", NULL};
 static const char *lockcmd[] = {"mel", NULL};
+static const char *dashboardcmd[] = {"dwm-dashboard", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
     {MODKEY, XK_p, spawn, {.v = roficmd}},
@@ -151,6 +153,7 @@ static const Key keys[] = {
     {MODKEY | ShiftMask, XK_minus, setgaps, {.i = GAP_RESET}},
     {MODKEY | ShiftMask, XK_equal, setgaps, {.i = GAP_TOGGLE}},
     {MODKEY | ShiftMask, XK_r, displaymodeswitcher, {0}},
+    {MODKEY | ShiftMask, XK_d, spawn, {.v = dashboardcmd}},
     {MODKEY | ShiftMask, XK_w, wallpaperswitcher, {0}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},

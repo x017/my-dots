@@ -164,3 +164,39 @@ See the preceding section for the replacements. feh writes ~/.fehbg only
 after a wallpaper is chosen; dwm does not create or overwrite it at startup.
 Dwm does not install dependencies or rebuild itself. Setup failures are
 reported in the session log; startup continues where possible.
+
+CUI control center
+------------------
+Alt+Shift+D opens the optional CUI control center as a floating window.
+It provides Wi-Fi scanning, connection and disconnection, Bluetooth scanning,
+pairing and connection controls, and default-output volume and mute. Escape
+closes it. It uses nmcli (NetworkManager), bluetoothctl (BlueZ), and pactl
+(PulseAudio or PipeWire's PulseAudio compatibility service). These services
+must be running and the desktop user must have permission to control them.
+
+Build separately with CMake, Git, a C compiler, pthreads, and the X11 and
+OpenGL development libraries required by CUI. CMake fetches a pinned CUI
+revision from GitHub. From config/dwm:
+
+    cmake -S dashboard -B dashboard/build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+    cmake --build dashboard/build
+    cmake --install dashboard/build
+    make clean install
+
+Make sure ~/.local/bin is in dwm's PATH, or install to another PATH directory.
+Rebuild/restart dwm for the binding and floating rule. This does not alter
+existing autostart files. The dashboard can also be launched as
+`dwm-dashboard` directly. It uses the system monospace font via fc-match,
+falling back to CUI's built-in mono; DWM_DASHBOARD_FONT can specify a font
+file. Optional buttons launch nm-connection-editor, blueman-manager, and
+pavucontrol if installed.
+
+Wi-Fi passwords are passed through a private stdin pipe, not command-line
+arguments; they are cleared from the dashboard after submission. The password
+field supports WPA personal networks; use Network settings for enterprise
+credentials, hidden networks, or other advanced configurations. Bluetooth
+pairing that requires a PIN or confirmation needs a separate running pairing
+agent (for example Blueman); use Bluetooth settings for interactive pairing.
+The dashboard reports command failures but cannot guarantee pairing support
+without an agent. Device state refreshes periodically; operations run in a
+background worker and may take a few seconds.

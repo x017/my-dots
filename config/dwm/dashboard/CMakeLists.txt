@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.14)
+project(dwm_dashboard C)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+include(FetchContent)
+set(CUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CUI_PLATFORM x11 CACHE STRING "" FORCE)
+FetchContent_Declare(cui
+  GIT_REPOSITORY https://github.com/yappologistic/CUI.git
+  GIT_TAG 7bb08ff7c56eb912fe7133985f8b7fa65098ea2e)
+FetchContent_MakeAvailable(cui)
+find_package(Threads REQUIRED)
+add_executable(dwm-dashboard dashboard.c)
+target_compile_definitions(dwm-dashboard PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_options(dwm-dashboard PRIVATE -Wall -Wextra)
+target_link_libraries(dwm-dashboard PRIVATE cui::cui Threads::Threads)
+install(TARGETS dwm-dashboard RUNTIME DESTINATION bin)
