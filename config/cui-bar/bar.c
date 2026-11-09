@@ -74,7 +74,8 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
-    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
+    Window popup, popup_previous_focus; int popup_previous_revert;
+    int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
     cui_texture album_texture; char album_url[1024]; int album_fd; unsigned int album_serial;
@@ -590,9 +591,25 @@ static bool request_action(Action action, const char *arg, const char *password,
 static void open_settings(const char *program) { launch(program); }
 #include "popup_content.h"
 static UIState popup_state;
+/* Focus normally instead of grabbing the keyboard, so dwm's global key
+ * bindings remain available. Never override focus after the user switched. */
+static void focus_popup(Bar *b) {
+    Window focus; int revert;
+    XGetInputFocus(b->dpy, &focus, &revert);
+    if (focus == b->popup) return;
+    b->popup_previous_focus = focus; b->popup_previous_revert = revert;
+    XSetInputFocus(b->dpy, b->popup, RevertToPointerRoot, CurrentTime);
+}
+static void restore_popup_focus(Bar *b) {
+    Window focus; int revert;
+    XGetInputFocus(b->dpy, &focus, &revert);
+    if (focus == b->popup)
+        XSetInputFocus(b->dpy, b->popup_previous_focus, b->popup_previous_revert, CurrentTime);
+}
 static void close_popup(Bar *b) {
     if (!b->popup) return;
-    XUngrabKeyboard(b->dpy, CurrentTime);
+    restore_popup_focus(b);
+    b->music_seek_pending = 0;
     XDestroyWindow(b->dpy, b->popup); b->popup = None;
     if (b->popup_ui) {
         int i;
@@ -619,7 +636,7 @@ static void open_popup(Bar *b, int page) {
     if (b->popup) { close_popup(b); }
     attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
     attr.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
-                      LeaveWindowMask | KeyPressMask | KeyReleaseMask;
+                      LeaveWindowMask | KeyPressMask | KeyReleaseMask | FocusChangeMask;
     b->popup = XCreateWindow(b->dpy, b->root, p->x + (page == 6 ? notification_popup_x(b, width) : p->width - width), p->y + HEIGHT + 6,
                             width, height, 0, DefaultDepth(b->dpy, b->screen), InputOutput,
                             DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
@@ -635,9 +652,7 @@ static void open_popup(Bar *b, int page) {
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page == 5 ? 4 : page;
     popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4; b->popup_notifications = page == 6;
     XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
-    if (XGrabKeyboard(b->dpy, b->popup, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
-        fprintf(stderr, "cui-bar: cannot grab keyboard for control center\n"); close_popup(b); return;
-    }
+    focus_popup(b);
     cui_input_focus(b->popup_ui, true);
 }
 static void calendar_page(cui_ctx *ui, Bar *b) {
@@ -736,11 +751,14 @@ static void music_progress(cui_ctx *ui, Bar *b) {
     const IslandFrame *f = &b->island; char left[24], right[24];
     if (b->music_seek_pending && (strcmp(b->seek_player, f->player) || strcmp(b->seek_track, f->track_id) ||
         strcmp(b->seek_title, f->title) || strcmp(b->seek_artist, f->artist))) b->music_seek_pending = 0;
-    if (!b->music_seek_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) b->music_seek = (float)f->position;
+    if (!b->music_seek_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) {
+        b->music_seek = roundf((float)f->position);
+        if (b->music_seek > f->duration) b->music_seek = (float)f->duration;
+    }
     if (f->duration > 0 && f->position_available) {
         music_time(b->music_seek, left, sizeof left); music_time(f->duration, right, sizeof right);
         if (cui_slider(ui, "##track-position", &b->music_seek, 0, (float)f->duration,
-                       .step = 1, .width = CUI_FILL, .disabled = !f->player[0])) {
+                       .step = 1, .width = CUI_FILL, .disabled = !f->player[0] || b->island_fd < 0)) {
             if (!b->music_seek_pending) {
                 copystr(b->seek_player, sizeof b->seek_player, f->player); copystr(b->seek_track, sizeof b->seek_track, f->track_id);
                 copystr(b->seek_title, sizeof b->seek_title, f->title); copystr(b->seek_artist, sizeof b->seek_artist, f->artist);
@@ -756,7 +774,8 @@ static void music_progress(cui_ctx *ui, Bar *b) {
             IslandRequest req = {.action = ISLAND_SEEK, .id = (int)b->music_seek};
             copystr(req.player, sizeof req.player, b->seek_player); copystr(req.track_id, sizeof req.track_id, b->seek_track);
             copystr(req.title, sizeof req.title, b->seek_title); copystr(req.artist, sizeof req.artist, b->seek_artist);
-            if (island_send(b, &req)) b->music_seek_pending = 0;
+            island_send(b, &req);
+            b->music_seek_pending = 0;
         }
     } else { b->music_seek_pending = 0; cui_secondary(ui, "Track position unavailable"); }
 }
@@ -791,12 +810,12 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
                 }
             }
             music_progress(ui, b);
-            cui_row(ui, .gap = 8) {
-                if (cui_button(ui, "Previous", .icon = CUI_ICON_SKIP_BACK, .size = CUI_SIZE_SM)) island_action(b, ISLAND_PREVIOUS);
-                if (cui_button(ui, b->island.playing ? "Pause" : "Play", .icon = b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY, .size = CUI_SIZE_SM)) island_action(b, ISLAND_TOGGLE);
-                if (cui_button(ui, "Next", .icon = CUI_ICON_SKIP_FORWARD, .size = CUI_SIZE_SM)) island_action(b, ISLAND_NEXT);
+            cui_row(ui, .width = CUI_FILL, .justify = CUI_JUSTIFY_CENTER, .align = CUI_ALIGN_CENTER, .gap = 8) {
+                if (cui_icon_button(ui, CUI_ICON_SKIP_BACK, .tooltip = "Previous", .size = CUI_SIZE_SM)) island_action(b, ISLAND_PREVIOUS);
+                if (cui_icon_button(ui, b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY, .tooltip = b->island.playing ? "Pause" : "Play", .size = CUI_SIZE_SM)) island_action(b, ISLAND_TOGGLE);
+                if (cui_icon_button(ui, CUI_ICON_SKIP_FORWARD, .tooltip = "Next", .size = CUI_SIZE_SM)) island_action(b, ISLAND_NEXT);
             }
-            cui_row(ui, .gap = 8) {
+            cui_row(ui, .width = CUI_FILL, .justify = CUI_JUSTIFY_CENTER, .gap = 8) {
                 if (cui_button(ui, b->island.shuffle ? "Shuffle on" : "Shuffle off", .size = CUI_SIZE_SM, .disabled = !b->island.player[0])) island_action(b, ISLAND_SHUFFLE);
                 { char loop[48]; snprintf(loop, sizeof loop, "Repeat: %s", b->island.loop[0] ? b->island.loop : "--");
                   if (cui_button(ui, loop, .size = CUI_SIZE_SM, .disabled = !b->island.player[0] || !b->island.loop[0])) island_action(b, ISLAND_LOOP); }
@@ -893,10 +912,15 @@ static cui_key popup_key(KeySym key) {
 static void popup_event(Bar *b, XEvent *e) {
     cui_ctx *ui = b->popup_ui;
     if (!ui) return;
-    if (e->type == MotionNotify) cui_input_mouse_move(ui, e->xmotion.x, e->xmotion.y);
+    if (e->type == FocusOut && e->xfocus.mode == NotifyNormal && e->xfocus.detail != NotifyInferior) {
+        close_popup(b); return;
+    }
+    if (e->type == FocusIn) cui_input_focus(ui, true);
+    else if (e->type == MotionNotify) cui_input_mouse_move(ui, e->xmotion.x, e->xmotion.y);
     else if (e->type == LeaveNotify) cui_input_mouse_leave(ui);
     else if (e->type == ButtonPress || e->type == ButtonRelease) {
         int down = e->type == ButtonPress; unsigned int button = e->xbutton.button;
+        if (down) focus_popup(b);
         cui_input_mouse_move(ui, e->xbutton.x, e->xbutton.y);
         if (button == Button1) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, down);
         else if (button == Button2) cui_input_mouse_button(ui, CUI_MOUSE_MIDDLE, down);
@@ -1052,13 +1076,6 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
         cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset, 8}, white, text, -1);
         if (scrolling) cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset + cycle, 8}, white, text, -1);
         cui_pop_clip(ui);
-        if (b->island.player_available && b->island.duration > 0 && b->island.position_available) {
-            float fraction = (float)(b->island.position / b->island.duration);
-            if (fraction < 0) fraction = 0;
-            if (fraction > 1) fraction = 1;
-            cui_draw_rect(ui, (cui_rect){text_left, 23, text_width, 1}, CUI_CORNERS(0), CUI_RGB(0x363a40));
-            cui_draw_rect(ui, (cui_rect){text_left, 23, text_width * fraction, 1}, CUI_CORNERS(0), white);
-        }
     }
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {

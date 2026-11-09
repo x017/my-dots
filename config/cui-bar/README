@@ -51,8 +51,8 @@ second for interaction and animations. Narrow screens hide the left stats
 when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
 The island uses `playerctl` and an MPRIS-compatible player for track metadata
-and previous/play-pause/next controls. It shows a slim position indicator and
-album art when the player provides duration and artwork. Click the island for
+and previous/play-pause/next controls. It shows album art when the player
+provides artwork. Click the island for
 a seek slider, elapsed/total time, shuffle and repeat controls; support for
 these actions depends on the player. Local PNG/JPEG artwork is loaded directly;
 HTTPS artwork is fetched asynchronously with `curl` into a private temporary
@@ -83,6 +83,10 @@ playerctl is missing, the corresponding feature is shown as unavailable. On
 narrow monitors the island shrinks; right-click the dashboard button to open
 its notification/media panel if the island cannot fit. Tray capacity may shrink
 to preserve room for it.
+
+The popups take normal keyboard focus without grabbing the keyboard: Escape
+closes a focused popup, while dwm shortcuts can switch windows. A popup closes
+when focus moves to another window.
 
 Click the grid button to open the dashboard, or click the keyboard layout to
 cycle through the XKB layouts actually configured in the session. Click a
