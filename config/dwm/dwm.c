@@ -25,6 +25,9 @@
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
 #include <X11/cursorfont.h>
+#include <X11/extensions/Xcomposite.h>
+#include <X11/extensions/Xdamage.h>
+#include <X11/extensions/Xrender.h>
 #include <X11/keysym.h>
 #include <errno.h>
 #include <locale.h>
@@ -355,35 +358,111 @@ struct NumTags {
 };
 
 /* function implementations */
-/* Switch between this monitor's windows, including windows on hidden tags. */
+static int switcher_xerror_seen;
+static int
+switcherxerror(Display *display, XErrorEvent *error)
+{
+  (void)display; (void)error;
+  switcher_xerror_seen = 1;
+  return 0;
+}
+
+/* Draw a scaled, live Composite backing pixmap into the switcher.  A client
+ * can vanish or unmap at any point; keep X errors local to this operation. */
+static int
+switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
+{
+  XWindowAttributes attr;
+  XRenderPictFormat *srcformat, *dstformat;
+  Pixmap pix;
+  Picture src, dst;
+  XTransform transform;
+  int pw, ph, ok = 0;
+  int (*oldhandler)(Display *, XErrorEvent *);
+
+  if (w < 1 || h < 1) return 0;
+  XSync(dpy, False);
+  switcher_xerror_seen = 0;
+  oldhandler = XSetErrorHandler(switcherxerror);
+  if (XGetWindowAttributes(dpy, win, &attr) && attr.map_state == IsViewable &&
+      attr.width > 0 && attr.height > 0 &&
+      (srcformat = XRenderFindVisualFormat(dpy, attr.visual)) &&
+      (dstformat = XRenderFindVisualFormat(dpy, DefaultVisual(dpy, screen)))) {
+    pix = XCompositeNameWindowPixmap(dpy, win);
+    src = XRenderCreatePicture(dpy, pix, srcformat, 0, NULL);
+    dst = XRenderCreatePicture(dpy, d->drawable, dstformat, 0, NULL);
+    pw = w; ph = (int)((double)attr.height * pw / attr.width);
+    if (ph > h) { ph = h; pw = (int)((double)attr.width * ph / attr.height); }
+    pw = MAX(1, pw); ph = MAX(1, ph);
+    memset(&transform, 0, sizeof transform);
+    transform.matrix[0][0] = XDoubleToFixed((double)attr.width / pw);
+    transform.matrix[1][1] = XDoubleToFixed((double)attr.height / ph);
+    transform.matrix[2][2] = XDoubleToFixed(1);
+    XRenderSetPictureTransform(dpy, src, &transform);
+    XRenderSetPictureFilter(dpy, src, FilterBilinear, NULL, 0);
+    XRenderComposite(dpy, PictOpOver, src, None, dst, 0, 0, 0, 0,
+                     x + (w - pw) / 2, y + (h - ph) / 2, pw, ph);
+    XRenderFreePicture(dpy, src); XRenderFreePicture(dpy, dst);
+    XFreePixmap(dpy, pix);
+    ok = 1;
+  }
+  XSync(dpy, False);
+  XSetErrorHandler(oldhandler);
+  return ok && !switcher_xerror_seen;
+}
+
+/* The list keeps window IDs rather than Client pointers because windows can
+ * close while the keyboard is grabbed.  Composite redirects are temporary and
+ * automatic, so an existing compositor can continue managing the screen. */
 void alttab(const Arg *arg) {
   Monitor *m = selmon;
   Client *c;
   Window *wins, *list, popup;
+  Damage *damage;
   XSetWindowAttributes wa;
   XEvent ev;
   Drw *d;
-  Clr *normal, *selected, *head;
+  Clr *normal, *selected, *head, *muted, *blue;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
   const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
   const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
   const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  const char *mc[] = {"#8a949e", "#121417", "#1e2025"};
+  const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
   unsigned int n = 0, count = 0, i, row, start, visible, filter = 0;
-  int choice, done = 0, accept = 0, width, height, rh, header;
+  int choice, done = 0, accept = 0, width, height, rh, header, listw, pad;
+  int composite_event, composite_error, damage_event, damage_error, render_event, render_error;
+  int havepreview, major, minor, (*oldhandler)(Display *, XErrorEvent *);
   char text[512], tagtext[128];
   KeySym key;
 
   for (c = m->stack; c; c = c->snext) n++;
   if (!n) return;
   wins = ecalloc(n, sizeof(Window)); list = ecalloc(n, sizeof(Window));
+  damage = ecalloc(n, sizeof(Damage));
   for (c = m->stack, i = 0; c; c = c->snext) wins[i++] = c->win;
   if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
-    free(wins); free(list); return;
+    free(wins); free(list); free(damage); return;
   }
-  rh = MAX(28, bh + 4); header = 2 * rh;
-  width = MAX(1, MIN(640, m->mw - 20));
-  visible = MAX(1, MIN((int)n, MAX(1, (m->mh - header - 20) / rh)));
-  height = header + visible * rh;
+  havepreview = XCompositeQueryExtension(dpy, &composite_event, &composite_error) &&
+                XDamageQueryExtension(dpy, &damage_event, &damage_error) &&
+                XRenderQueryExtension(dpy, &render_event, &render_error) &&
+                XCompositeQueryVersion(dpy, &major, &minor) &&
+                (major > 0 || minor >= 2);
+  if (havepreview) {
+    XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+    for (i = 0; i < n; i++) {
+      XCompositeRedirectWindow(dpy, wins[i], CompositeRedirectAutomatic);
+      damage[i] = XDamageCreate(dpy, wins[i], XDamageReportNonEmpty);
+    }
+    XSync(dpy, False); XSetErrorHandler(oldhandler);
+  }
+  pad = 16; rh = MAX(32, bh + 8); header = 3 * rh;
+  width = MAX(1, MIN(960, m->mw - 20));
+  height = MAX(1, MIN(530, m->mh - 20));
+  /* On narrow screens use the whole card for the list and omit the preview. */
+  listw = width >= 500 ? width * 38 / 100 : width - 2 * pad;
+  visible = MAX(1, (height - header - 2 * pad - rh) / rh);
   wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
   wa.event_mask = ExposureMask;
   popup = XCreateWindow(dpy, root, m->mx + (m->mw - width) / 2, m->my + (m->mh - height) / 2,
@@ -391,7 +470,8 @@ void alttab(const Arg *arg) {
                         DefaultVisual(dpy, screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
   d = drw_create(dpy, screen, root, width, height);
   drw_fontset_create(d, font, LENGTH(font));
-  normal = drw_scm_create(d, nc, 3); selected = drw_scm_create(d, sc, 3); head = drw_scm_create(d, hc, 3);
+  normal = drw_scm_create(d, nc, 3); selected = drw_scm_create(d, sc, 3);
+  head = drw_scm_create(d, hc, 3); muted = drw_scm_create(d, mc, 3); blue = drw_scm_create(d, bc, 3);
   XSetWindowBorder(dpy, popup, head[ColBorder].pixel); XMapRaised(dpy, popup);
   choice = n > 1 ? (arg->i < 0 ? n - 1 : 1) : 0;
   while (!done && running) {
@@ -402,16 +482,20 @@ void alttab(const Arg *arg) {
     }
     if (choice >= (int)count) choice = count ? count - 1 : 0;
     start = count && choice >= (int)visible ? choice - visible + 1 : 0;
-    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 0);
-    drw_text(d, 0, 0, width, rh, 12, "SWITCH WINDOWS   /   Alt+Tab  Shift+Tab  Esc", 0);
+    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 1);
+    drw_text(d, pad, pad, width - 2 * pad, rh, 4, "W I N D O W S", 0);
+    drw_setscheme(d, blue);
+    drw_text(d, width - pad - 120, pad, 120, rh, 4, "LIVE PREVIEW", 0);
+    drw_setscheme(d, head);
+    drw_rect(d, pad, pad + rh, MAX(1, width - 2 * pad), 1, 1, 0);
     tagtext[0] = '\0';
     for (i = 0; i < LENGTH(tags); i++) {
       char part[16];
       snprintf(part, sizeof part, "%s%u%s ", filter == (1U << i) ? "[" : "", i + 1, filter == (1U << i) ? "]" : "");
       strncat(tagtext, part, sizeof(tagtext) - strlen(tagtext) - 1);
     }
-    snprintf(text, sizeof text, "TAGS  %s  0: all", tagtext);
-    drw_text(d, 0, rh, width, rh, 12, text, 0);
+    snprintf(text, sizeof text, "TAGS   %s   0 ALL", tagtext);
+    drw_text(d, pad, pad + rh + 4, width - 2 * pad, rh, 4, text, 0);
     for (row = 0; row < visible; row++) {
       i = start + row;
       drw_setscheme(d, i < count && (int)i == choice ? selected : normal);
@@ -422,13 +506,38 @@ void alttab(const Arg *arg) {
           char part[8]; snprintf(part, sizeof part, "%u ", t + 1);
           strncat(tagtext, part, sizeof(tagtext) - strlen(tagtext) - 1);
         }
-        snprintf(text, sizeof text, "%-12s %s", tagtext, c->name);
+        snprintf(text, sizeof text, "%s | %s", tagtext, c->name);
       } else snprintf(text, sizeof text, "%s", count ? "" : "No windows on this tag");
-      drw_text(d, 0, header + row * rh, width, rh, 12, text, 0);
+      drw_text(d, pad, header + row * rh, listw, rh - 2, 10, text, 0);
     }
+    if (width >= 500) {
+      int px = pad + listw + pad, py = header, pw = width - px - pad, ph = height - py - pad - rh;
+      if (pw > 0 && ph > rh) {
+        drw_setscheme(d, normal); drw_rect(d, px, py, pw, ph, 1, 1);
+        drw_setscheme(d, muted);
+        if (count && (c = wintoclient(list[choice]))) {
+          drw_text(d, px, py, pw, rh, 10, c->name, 0);
+          if (!havepreview || !switcherpreview(d, c->win, px + 8, py + rh, pw - 16, ph - rh - 8))
+            drw_text(d, px, py + rh, pw, rh, 10, "Preview unavailable", 0);
+        } else drw_text(d, px, py, pw, rh, 10, "Select a window to preview", 0);
+      }
+    }
+    drw_setscheme(d, head);
+    drw_text(d, pad, height - pad - rh, width - 2 * pad, rh, 4,
+             "TAB cycle   1-9 tag   0 all   ESC cancel   release ALT select", 0);
     drw_map(d, popup, 0, 0, width, height);
     XNextEvent(dpy, &ev);
-    if (ev.type == KeyPress) {
+    if (havepreview && ev.type == damage_event + XDamageNotify) {
+      XDamageNotifyEvent *de = (XDamageNotifyEvent *)&ev;
+      XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+      XDamageSubtract(dpy, de->damage, None, None);
+      /* Collapse bursts of updates so fast Alt-Tab does not lag behind video. */
+      while (XCheckTypedEvent(dpy, damage_event + XDamageNotify, &ev)) {
+        de = (XDamageNotifyEvent *)&ev;
+        XDamageSubtract(dpy, de->damage, None, None);
+      }
+      XSync(dpy, False); XSetErrorHandler(oldhandler);
+    } else if (ev.type == KeyPress) {
       key = XLookupKeysym(&ev.xkey, 0);
       if (key == XK_Escape) done = 1;
       else if (key == XK_Return || key == XK_KP_Enter) done = accept = 1;
@@ -441,12 +550,23 @@ void alttab(const Arg *arg) {
     } else if (ev.type == KeyRelease) {
       key = XLookupKeysym(&ev.xkey, 0);
       if (key == XK_Alt_L || key == XK_Alt_R) done = accept = 1;
-    } else if (ev.type != Expose && ev.type != EnterNotify && ev.type != FocusIn && handler[ev.type]) handler[ev.type](&ev);
+    } else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify && ev.type != FocusIn && handler[ev.type]) handler[ev.type](&ev);
   }
   c = accept && count ? wintoclient(list[choice]) : NULL;
   XDestroyWindow(dpy, popup); XUngrabKeyboard(dpy, CurrentTime);
-  drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3); drw_free(d);
-  free(wins); free(list);
+  if (havepreview) {
+    XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+    for (i = 0; i < n; i++) {
+      if (damage[i]) XDamageDestroy(dpy, damage[i]);
+      XCompositeUnredirectWindow(dpy, wins[i], CompositeRedirectAutomatic);
+    }
+    XSync(dpy, False); XSetErrorHandler(oldhandler);
+    /* Extension events must not reach dwm's core-event dispatch table. */
+    while (XCheckTypedEvent(dpy, damage_event + XDamageNotify, &ev)) { }
+  }
+  drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3);
+  drw_scm_free(d, muted, 3); drw_scm_free(d, blue, 3); drw_free(d);
+  free(wins); free(list); free(damage);
   if (c && c->mon == selmon) {
     if (!ISVISIBLE(c)) { Arg a = {.ui = c->tags}; view(&a); }
     focus(c); restack(selmon);
@@ -1833,7 +1953,7 @@ void run(void) {
   /* main event loop */
   XSync(dpy, False);
   while (running && !XNextEvent(dpy, &ev))
-    if (handler[ev.type])
+    if (ev.type < LASTEvent && handler[ev.type])
       handler[ev.type](&ev); /* call handler */
 }
 

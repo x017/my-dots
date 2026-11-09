@@ -5,7 +5,8 @@ dwm is an extremely fast, small, and dynamic window manager for X.
 
 Requirements
 ------------
-In order to build dwm you need the Xlib header files.
+In order to build dwm you need Xlib, Xft, Fontconfig, Xinerama,
+XComposite, XDamage and XRender development headers and libraries.
 
 
 Installation
@@ -54,6 +55,7 @@ monitor, including windows on other tags. Keep Alt held and press Tab (or
 Shift+Tab) to cycle; release Alt or press Enter to select. Escape cancels.
 While the switcher is open, press 1–9 to preview/filter that tag's windows,
 or 0 to show all tags. Selecting a hidden window switches to its tag. The
-popup shows window titles rather than live thumbnails and uses the Quickshell
-palette and monospace font. Alt+Ctrl+Tab retains the previous-tag shortcut.
+popup shows a live preview of the selected window using XComposite, XDamage
+and XRender, alongside window titles. It uses the Quickshell palette and
+monospace font. If the X server lacks those extensions, titles still work. Alt+Ctrl+Tab retains the previous-tag shortcut.
 Rebuild and restart dwm after changing the configuration.
