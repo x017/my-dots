@@ -667,26 +667,26 @@ static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const ch
 static void icon(cui_ctx *ui, int x, int y, int size, cui_color color, const char *glyph) {
     cui_draw_text(ui, CUI_FONT_ICONS, size, (cui_vec2){x, y}, color, glyph, -1);
 }
-static void dock_cell(cui_ctx *ui, int x, int w, const char *glyph, const char *title, const char *value, cui_color accent) {
-    cui_draw_rect(ui, (cui_rect){x, 2, w, HEIGHT - 4}, CUI_CORNERS(6), CUI_RGB(0x121417));
+/* One-line controls share a single dock surface, while keeping separate hit areas. */
+static void dock_cell(cui_ctx *ui, int x, int w, const char *glyph, const char *value, cui_color accent) {
+    char fitted[256]; size_t len;
     icon(ui, x + 6, 7, 13, accent, glyph);
-    cui_push_clip(ui, (cui_rect){x + 22, 2, w - 24, HEIGHT - 4});
-    label(ui, x + 22, 2, 9, CUI_RGB(0x8a949e), title);
-    {
-        char fitted[256]; size_t len;
-        snprintf(fitted, sizeof fitted, "%s", value);
-        len = strlen(fitted);
-        if (cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width > w - 24) {
-            while (len > 0 && cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width +
-                   cui_measure_text(ui, CUI_FONT_MONO, 11, "...", -1).width > w - 24) {
-                do { len--; } while (len > 0 && ((unsigned char)fitted[len] & 0xc0) == 0x80);
-                fitted[len] = 0;
-            }
-            if (len + 3 < sizeof fitted) strcat(fitted, "...");
+    cui_push_clip(ui, (cui_rect){x + 23, 4, w - 25, HEIGHT - 8});
+    snprintf(fitted, sizeof fitted, "%s", value);
+    len = strlen(fitted);
+    if (cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width > w - 25) {
+        while (len > 0 && cui_measure_text(ui, CUI_FONT_MONO, 11, fitted, -1).width +
+               cui_measure_text(ui, CUI_FONT_MONO, 11, "...", -1).width > w - 25) {
+            do { len--; } while (len > 0 && ((unsigned char)fitted[len] & 0xc0) == 0x80);
+            fitted[len] = 0;
         }
-        label(ui, x + 22, 13, 11, CUI_RGB(0xadbac7), fitted);
+        if (len + 3 < sizeof fitted) strcat(fitted, "...");
     }
+    label(ui, x + 23, 8, 11, CUI_RGB(0xadbac7), fitted);
     cui_pop_clip(ui);
+}
+static void divider(cui_ctx *ui, int x) {
+    cui_draw_rect(ui, (cui_rect){x, 8, 1, 12}, CUI_CORNERS(0), CUI_RGB(0x2d3035));
 }
 /* Prefer the active Wi-Fi SSID even when a wired link is also present.
  * Keep the string intact; the drawing clip handles long and UTF-8 names. */
@@ -706,47 +706,50 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     (void)r;
     cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x090b0d), CUI_RGB(0x2d3035), 1);
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {
+        /* A single workspace rail, with a clear selected capsule and occupancy dots. */
+        cui_draw_rect(ui, (cui_rect){l.tags - 3, 3, b->tag_count * 28 + 3, 22}, CUI_CORNERS(8), CUI_RGB(0x121417));
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 3, 24, 22}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 23, 12, 2}, CUI_CORNERS(1), white);
-            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 23}, 1.5f, blue);
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 5, 23, 18}, CUI_CORNERS(7), CUI_RGB(0x2d3035));
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 22}, 1.3f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            label(ui, x + 10, 6, 12, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
+            label(ui, x + 10, 7, 11, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
         }
     }
     if (l.stats) {
         int x = l.tags + b->tag_count * 28 + 22;
-        icon(ui, x, 7, 14, blue, CUI_ICON_CPU);
-        label(ui, x + 19, 1, 9, muted, "CPU");
+        /* Telemetry reads like a compact instrument strip rather than stacked labels. */
+        cui_draw_rect(ui, (cui_rect){x - 5, 3, 295, 22}, CUI_CORNERS(8), CUI_RGB(0x121417));
+        icon(ui, x + 3, 8, 12, blue, CUI_ICON_CPU);
         if (b->cpu >= 0) snprintf(text, sizeof text, "%d%%", b->cpu); else strcpy(text, "--");
-        label(ui, x + 19, 13, 11, fg, text);
-        icon(ui, x + 75, 7, 14, blue, CUI_ICON_DATABASE);
-        label(ui, x + 94, 1, 9, muted, "MEM");
+        label(ui, x + 20, 8, 11, fg, text); divider(ui, x + 69);
+        icon(ui, x + 78, 8, 12, blue, CUI_ICON_DATABASE);
         if (b->memory_total_kb) snprintf(text, sizeof text, "%.1fG", b->memory_used_kb / 1048576.0); else strcpy(text, "--");
-        label(ui, x + 94, 13, 11, fg, text);
-        icon(ui, x + 150, 7, 14, blue, CUI_ICON_ACTIVITY);
-        label(ui, x + 169, 1, 9, muted, "TEMP");
+        label(ui, x + 95, 8, 11, fg, text); divider(ui, x + 144);
+        icon(ui, x + 153, 8, 12, blue, CUI_ICON_ACTIVITY);
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        label(ui, x + 169, 13, 11, fg, text);
+        label(ui, x + 170, 8, 11, fg, text);
         if (b->battery >= 0) {
-            icon(ui, x + 225, 7, 14, blue, CUI_ICON_BATTERY);
+            divider(ui, x + 219); icon(ui, x + 228, 8, 12, blue, CUI_ICON_BATTERY);
             snprintf(text, sizeof text, "%d%%", b->battery);
-            label(ui, x + 244, 8, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text);
+            label(ui, x + 245, 8, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text);
         }
     }
+    /* A unified status dock with subtle separators keeps click targets distinct. */
+    cui_draw_rect(ui, (cui_rect){l.audio - 2, 3, l.lock + 28 - l.audio + 2, 22}, CUI_CORNERS(8), CUI_RGB(0x121417));
+    divider(ui, l.network - 2); divider(ui, l.bluetooth - 2);
+    divider(ui, l.language - 2); divider(ui, l.clock - 2); divider(ui, l.lock - 2);
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
-    dock_cell(ui, l.audio, 62, b->snapshot.muted ? CUI_ICON_VOLUME_X : CUI_ICON_VOLUME_2, "VOL", text, blue);
-    dock_cell(ui, l.network, l.network_width, b->snapshot.wifi_device[0] ? CUI_ICON_WIFI : CUI_ICON_GLOBE, b->snapshot.wifi_device[0] ? "WI-FI" : "NET", network_label(b),
+    dock_cell(ui, l.audio, 62, b->snapshot.muted ? CUI_ICON_VOLUME_X : CUI_ICON_VOLUME_2, text, blue);
+    dock_cell(ui, l.network, l.network_width, b->snapshot.wifi_device[0] ? CUI_ICON_WIFI : CUI_ICON_GLOBE, network_label(b),
               b->ethernet || b->snapshot.wifi_device[0] ? blue : muted);
     if (!b->snapshot.bluetooth_available) strcpy(text, "--"); else if (!b->snapshot.bluetooth_enabled) strcpy(text, "OFF");
     else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
-        if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
-    dock_cell(ui, l.bluetooth, 54, CUI_ICON_LINK, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
+        if (connected) snprintf(text, sizeof text, "%d", connected); else strcpy(text, "ON"); }
+    dock_cell(ui, l.bluetooth, 54, CUI_ICON_LINK, text, b->snapshot.bluetooth_enabled ? blue : muted);
     label(ui, l.language + 5, 8, 11, muted, b->language);
-    cui_draw_rect(ui, (cui_rect){l.clock, 2, 64, HEIGHT - 4}, CUI_CORNERS(5), CUI_RGB(0x181a1e));
-    icon(ui, l.clock + 5, 8, 12, muted, CUI_ICON_CLOCK);
-    label(ui, l.clock + 22, 7, 11, white, b->clock);
+    icon(ui, l.clock + 5, 8, 12, blue, CUI_ICON_CLOCK);
+    label(ui, l.clock + 22, 8, 11, white, b->clock);
     icon(ui, l.lock + 7, 7, 14, muted, CUI_ICON_LOCK);
 }
 enum { TIP_NONE, TIP_CPU, TIP_MEMORY, TIP_TEMP, TIP_BATTERY, TIP_SOUND, TIP_NETWORK, TIP_BT, TIP_CLOCK, TIP_LANGUAGE, TIP_LOCK };

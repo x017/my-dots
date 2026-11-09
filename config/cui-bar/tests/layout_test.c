@@ -14,6 +14,12 @@ int main(void) {
         assert(l.network == l.audio + 66);
         assert(l.bluetooth == l.network + l.network_width + 4);
         assert(l.tags + b.tag_count * 28 <= l.tray - 4);
+        if (l.stats) {
+            int stats_x = l.tags + b.tag_count * 28 + 22;
+            assert(stats_x - 5 >= l.tags + b.tag_count * 28);
+            assert(stats_x + 290 <= l.tray);
+        }
+        assert(l.lock + 28 <= b.width - PAD);
     }
     b.network_available = 1; b.ethernet = 1;
     assert(!strcmp(network_label(&b), "Ethernet"));

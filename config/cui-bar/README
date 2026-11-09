@@ -9,6 +9,8 @@ network, Bluetooth, audio, display mode and calendar control center is built
 into the bar process. Its dashboard and calendar use rounded X Shape corners.
 The 28px panel floats with rounded X Shape corners, an 8px
 top gap and 10px side gaps; dwm reserves the full top gap plus panel height.
+A compact workspace rail and telemetry strip sit on the left, with a unified
+status dock on the right and open space in between.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
 headers/libraries required):
