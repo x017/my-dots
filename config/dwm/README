@@ -207,8 +207,12 @@ DWM_NO_CUI_BAR=1 before starting dwm to disable automatic launch.
 
 See ../cui-bar/README for build instructions, controls, and limitations.
 
-The CUI dashboard and the bar's control popup also include display mode and
-wallpaper pages. Display changes use xrandr and the same saved per-output
-configuration as the native switcher; wallpapers use feh and its ~/.fehbg.
+The CUI dashboard and the bar's control popup also include a display mode
+page. Display changes use xrandr and the same saved per-output configuration
+as the native switcher. Wallpaper selection remains in the native picker and
+uses feh and its ~/.fehbg.
 The native wallpaper picker previews images with Imlib2 (including its image
-loaders), and remains open after applying so another can be selected.
+loaders), and remains open after applying so another can be selected. If the
+default folder is empty it also checks ~/Pictures/Wallpapers,
+~/Pictures/wallpapers and ~/wallpapers. DWM_WALLPAPERS_DIR explicitly selects
+a folder and disables this fallback.

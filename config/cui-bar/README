@@ -5,8 +5,9 @@ This is a separate X11/CUI program, inspired by the Waybar configuration in
 property/message protocol with this dwm build to display and switch workspaces
 and reserve space on each monitor (up to 16). The tray appears on the first
 monitor because an XEmbed icon can only be hosted by one tray at a time. The
-network, Bluetooth, audio, display mode and wallpaper control center is built
-into the bar process.
+network, Bluetooth, audio, display mode and calendar control center is built
+into the bar process. The panel floats with rounded X Shape corners, an 8px
+top gap and 10px side gaps; dwm reserves the full top gap plus panel height.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
 headers/libraries required):
@@ -28,9 +29,11 @@ Existing autostart files are not changed. Stop an old tray/bar before testing.
 The bar shows temperature, CPU, memory, battery, workspace numbers, volume,
 network state, Bluetooth state, clock, XEmbed tray icons, language, and lock.
 Stats and status come from /proc, /sys, nmcli, bluetoothctl, pactl and XKB.
-Service commands run in a separate worker, at most once every 10 seconds (and
-after audio actions), without blocking dwm or the bar's X event loop. CPU,
-memory and clock refresh every five seconds. A single-threaded software CUI
+Service commands run in a separate worker about every two seconds (plus command
+time), and after actions, without blocking dwm or the bar's X event loop.
+CPU, memory, temperature and clock refresh every second. CPU temperature uses
+CPU-labelled hwmon sensors, then CPU thermal zones; set CUI_BAR_TEMP_PATH to a
+specific readable sysfs temperature input if detection is unsuitable. A single-threaded software CUI
 renderer draws only after changes or refreshes; no continuously running GPU
 render loop is required. The open control popup refreshes four times per
 second for interaction and animations. Narrow screens hide the left stats
@@ -38,10 +41,10 @@ when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
 Click a workspace to view it on that monitor. Click volume, network or
 Bluetooth to open the bar's integrated CUI control popup on that monitor. Click
-the clock to open its Display page; use its tabs to reach Wallpapers.
+the clock to open its calendar, with previous, next and today controls.
 The popup can list, scan, connect and disconnect Wi-Fi and Bluetooth devices,
-control radios, adjust/mute audio, select display resolutions and refresh rates,
-and apply wallpapers; Escape or Close dismisses it. Volume changes made while
+control radios, adjust/mute audio, and select display resolutions and refresh
+rates; Escape or Close dismisses it. Volume changes made while
 another action runs are retained and sent when the worker becomes free. Right-click
 volume to mute, scroll it to adjust by 2%, or right-click network/Bluetooth to
 toggle the radio directly. Lock launches mel. NetworkManager/nmcli, BlueZ/
@@ -74,9 +77,18 @@ Xinerama reports as one screen will be treated as one monitor by dwm.
 Display and wallpaper controls
 ------------------------------
 Display modes use xrandr and save successful changes in the same
-refreshrate.conf used by dwm's display switcher. Wallpaper selection uses
-feh --bg-fill and its normal ~/.fehbg persistence. Files come from
-DWM_WALLPAPERS_DIR or ~/Downloads/wallpaper; the CUI list shows up to 100
-images. The native dwm wallpaper picker provides image previews and needs
-Imlib2 with image format loaders installed. The CUI list does not currently
-provide thumbnails.
+refreshrate.conf used by dwm's display switcher. Wallpaper selection remains
+in the native dwm picker (Alt+Shift+W); it needs feh, Imlib2 and the Imlib2
+loaders for the image formats used. It reads DWM_WALLPAPERS_DIR or
+~/Downloads/wallpaper (with common Pictures/wallpapers fallbacks if empty).
+The bar does not implement wallpaper controls.
+
+Bluetooth authorization
+-----------------------
+The bar does not run as root or change system policy. BlueZ must be running,
+the user must be in an active login session, and the session may need a polkit
+authentication agent. Pairing that requires a PIN or confirmation also needs
+a Bluetooth pairing agent such as blueman-applet. Start the appropriate agent
+in your existing session startup if it is not already running; existing
+startup files are never modified. Authorization errors are reported in the
+popup; check `bluetoothctl show` and `loginctl session-status` when diagnosing.

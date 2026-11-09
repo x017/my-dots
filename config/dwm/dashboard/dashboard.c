@@ -61,13 +61,14 @@ static void *worker(void *unused) {
         pthread_mutex_unlock(&backend.mutex);
         if (has_request) {
             int rc;
-            message[0] = 0;
-            if (request.type == ACT_DISPLAY_APPLY || request.type == ACT_WALLPAPER_APPLY)
+            message[0] = 0; dashboard_action_error[0] = 0;
+            if (request.type == ACT_DISPLAY_APPLY)
                 rc = desktop_execute(&request, message, sizeof message);
             else rc = execute(&request);
             if (rc == 0 && !message[0]) copystr(message, sizeof message, "Done.");
-            else if (request.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password, permissions or NetworkManager.");
-            else if (request.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. You may need a Bluetooth pairing agent; open Bluetooth settings.");
+            else if (rc && dashboard_action_error[0]) copystr(message, sizeof message, dashboard_action_error);
+            else if (rc && request.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password, permissions or NetworkManager.");
+            else if (rc && request.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. You may need a Bluetooth pairing agent; open Bluetooth settings.");
             else if (rc && !message[0]) copystr(message, sizeof message, "Action failed. Check device availability and permissions.");
             wipe(&request, sizeof request);
         }
@@ -112,7 +113,7 @@ static void open_settings(const char *program) {
 
 typedef struct {
     char selected_wifi[32], selected_bt[32], password[256];
-    char display_output[128], wallpaper[256];
+    char display_output[128];
     float volume;
     int page, initialized_volume, volume_pending;
 } UIState;
@@ -314,7 +315,7 @@ int main(void) {
     cui_app *app;
     cui_ctx *ui;
     UIState state = {0};
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Wallpaper"};
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display"};
     signal(SIGPIPE, SIG_IGN);
     app = cui_app_create(&(cui_app_desc){ .title = "Dwm Control Center", .width = 760, .height = 700,
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
@@ -340,14 +341,13 @@ int main(void) {
                 if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) cui_app_quit(app);
             }
             cui_separator(ui);
-            cui_segmented(ui, "pages", pages, 5, &state.page, .full_width = true);
+            cui_segmented(ui, "pages", pages, 4, &state.page, .full_width = true);
             if (busy) cui_text(ui, "Working…", .color = CUI_COLOR_INFO);
             else if (snapshot.message[0]) cui_text(ui, snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
             if (state.page == 0) wifi_page(ui, &state, &snapshot, busy);
             else if (state.page == 1) bluetooth_page(ui, &state, &snapshot, busy);
             else if (state.page == 2) audio_page(ui, &state, &snapshot, busy);
-            else if (state.page == 3) display_page(ui, &state, &desktop, busy);
-            else wallpaper_page(ui, &state, &desktop, busy);
+            else display_page(ui, &state, &desktop, busy);
         }
     }
     pthread_mutex_lock(&backend.mutex);

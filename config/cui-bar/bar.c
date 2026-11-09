@@ -15,6 +15,7 @@
 #include <cui/cui_render.h>
 #include <errno.h>
 #include <dirent.h>
+#include <dlfcn.h>
 #include <strings.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -29,7 +30,10 @@
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
 
-#define HEIGHT 36
+#define HEIGHT 42
+#define TOP_GAP 8
+#define SIDE_GAP 10
+#define RADIUS 12
 #define ICON_SIZE 24
 #define ICON_SLOT 30
 #define MAX_ICONS 64
@@ -62,7 +66,7 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
-    Window popup; int popup_width, popup_height, popup_page, popup_dirty;
+    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset;
     cui_ctx *popup_ui;
 } Bar;
 static volatile sig_atomic_t running = 1;
@@ -190,14 +194,14 @@ static int write_all(int fd, const void *data, size_t length) {
 static void worker(int fd) {
     WorkerFrame frame = {0}; Request req; char output[MAX_OUTPUT];
     char *devices[] = {"nmcli", "-t", "-f", "TYPE,STATE", "device", "status", NULL};
-    char message[256] = "";
+    char message[256] = ""; time_t next_desktop = 0;
     struct pollfd p = { .fd = fd, .events = POLLIN };
     signal(SIGCHLD, SIG_DFL); signal(SIGPIPE, SIG_IGN);
     setenv("LC_ALL", "C", 1);
     for (;;) {
         int ready;
         read_snapshot(&frame.snapshot);
-        desktop_read(&frame.desktop);
+        if (time(NULL) >= next_desktop) { desktop_read(&frame.desktop); next_desktop = time(NULL) + 10; }
         copystr(frame.snapshot.message, sizeof frame.snapshot.message, message);
         frame.ethernet = frame.network_available = 0;
         if (run_command(devices, NULL, output, sizeof output, 2500) == 0) {
@@ -205,7 +209,7 @@ static void worker(int fd) {
             frame.ethernet = strstr(output, "ethernet:connected") != NULL;
         }
         if (!write_all(fd, &frame, sizeof frame)) break;
-        ready = poll(&p, 1, 10000);
+        ready = poll(&p, 1, 2000);
         if (ready < 0 && errno == EINTR) continue;
         if (ready < 0 || (p.revents & (POLLHUP | POLLERR | POLLNVAL))) break;
         if (ready && (p.revents & POLLIN)) {
@@ -216,15 +220,16 @@ static void worker(int fd) {
                 if (n <= 0) goto done;
                 used += (size_t)n;
             }
-            int rc; message[0] = 0;
-            if (req.type == ACT_DISPLAY_APPLY || req.type == ACT_WALLPAPER_APPLY) {
-                message[0] = 0; rc = desktop_execute(&req, message, sizeof message);
+            int rc; message[0] = 0; dashboard_action_error[0] = 0;
+            if (req.type == ACT_DISPLAY_APPLY) {
+                message[0] = 0; rc = desktop_execute(&req, message, sizeof message); next_desktop = 0;
             } else rc = execute(&req);
             if (rc && !message[0]) {
-                if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
+                if (dashboard_action_error[0]) copystr(message, sizeof message, dashboard_action_error);
+                else if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
                 else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
                 else copystr(message, sizeof message, "Action failed. Check device and permissions.");
-            } else if (!rc && req.type != ACT_DISPLAY_APPLY && req.type != ACT_WALLPAPER_APPLY) copystr(message, sizeof message, "Done.");
+            } else if (!rc && req.type != ACT_DISPLAY_APPLY) copystr(message, sizeof message, "Done.");
             wipe(&req, sizeof req);
             frame.completed++;
         }
@@ -259,6 +264,31 @@ static void send_command(Bar *b, long command, long value, int monitor) {
     XSendEvent(b->dpy, b->root, False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
     XFlush(b->dpy);
 }
+/* Shape the actual X window, not just the pixels, so corners show the desktop. */
+static void shape_panel(Bar *b, Window win, int width) {
+    typedef int (*Query)(Display *, int *, int *);
+    typedef void (*Combine)(Display *, Window, int, int, int, Pixmap, int);
+    static void *lib;
+    if (!lib) lib = dlopen("libXext.so.6", RTLD_LAZY | RTLD_LOCAL);
+    Query query; Combine combine; int event, error, radius; Pixmap mask; GC gc;
+    if (!lib) return;
+    *(void **)(&query) = dlsym(lib, "XShapeQueryExtension");
+    *(void **)(&combine) = dlsym(lib, "XShapeCombineMask");
+    if (!query || !combine || !query(b->dpy, &event, &error)) { return; }
+    radius = RADIUS; if (width < radius * 2) radius = width / 2;
+    mask = XCreatePixmap(b->dpy, win, width, HEIGHT, 1);
+    gc = XCreateGC(b->dpy, mask, 0, NULL);
+    XSetForeground(b->dpy, gc, 0); XFillRectangle(b->dpy, mask, gc, 0, 0, width, HEIGHT);
+    XSetForeground(b->dpy, gc, 1);
+    XFillRectangle(b->dpy, mask, gc, radius, 0, width - radius * 2, HEIGHT);
+    XFillRectangle(b->dpy, mask, gc, 0, radius, width, HEIGHT - radius * 2);
+    XFillArc(b->dpy, mask, gc, 0, 0, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, width - radius * 2, 0, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, 0, HEIGHT - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, width - radius * 2, HEIGHT - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
+    combine(b->dpy, win, 0 /* ShapeBounding */, 0, 0, mask, 0 /* ShapeSet */);
+    XFreeGC(b->dpy, gc); XFreePixmap(b->dpy, mask);
+}
 static void use_panel(Bar *b, int i) {
     Panel *p = &b->panels[i];
     b->current = i; b->win = p->win; b->width = p->width;
@@ -284,6 +314,7 @@ static void read_workspace(Bar *b) {
             Panel *p = &b->panels[i];
             int is_new = i >= b->panel_count;
             int was_uninitialized = p->width <= 1;
+            int old_x = p->x, old_y = p->y, old_width = p->width;
             if (is_new) {
                 XSetWindowAttributes attr;
                 attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
@@ -292,12 +323,14 @@ static void read_workspace(Bar *b) {
                                        InputOutput, DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
             }
             p->id = (int)v[at]; p->active = v[at + 1]; p->occupied = v[at + 2]; p->urgent = v[at + 3];
-            p->x = (int32_t)v[at + 4]; p->y = (int32_t)v[at + 5];
-            p->width = (int)v[at + 6]; p->height = (int)v[at + 7];
+            p->x = (int32_t)v[at + 4]; p->y = (int32_t)v[at + 5] + TOP_GAP;
+            p->width = (int)v[at + 6]; p->height = (int)v[at + 7] - TOP_GAP;
+            if (p->width > SIDE_GAP * 2 + 1) { p->x += SIDE_GAP; p->width -= SIDE_GAP * 2; }
             if (p->width <= 0 || p->width > 32767) p->width = 1;
             XMoveResizeWindow(b->dpy, p->win, p->x, p->y, p->width, HEIGHT);
+            if (is_new || old_width != p->width) shape_panel(b, p->win, p->width);
             XMapRaised(b->dpy, p->win);
-            if (is_new || old_id != p->id || was_uninitialized) send_command(b, 2, (long)p->win, p->id);
+            if (is_new || old_id != p->id || was_uninitialized || old_x != p->x || old_y != p->y || old_width != p->width) send_command(b, 2, (long)p->win, p->id);
         }
         for (i = count; i < b->panel_count; i++) XDestroyWindow(b->dpy, b->panels[i].win);
         b->panel_count = count;
@@ -311,6 +344,51 @@ static int read_int(const char *path) {
     FILE *f = fopen(path, "r"); int n = -1;
     if (f) { if (fscanf(f, "%d", &n) != 1) n = -1; fclose(f); }
     return n;
+}
+/* Prefer actual CPU hwmon sensors over unrelated thermal zones. */
+static int cpu_temperature(void) {
+    const char *override = getenv("CUI_BAR_TEMP_PATH");
+    const char *cpu_names[] = {"coretemp", "k10temp", "zenpower", "cpu", "x86_pkg_temp", "soc_thermal", NULL};
+    glob_t g = {0}; char path[PATH_MAX], name[128]; int i, j, best = -1;
+    if (override && *override) {
+        int t = read_int(override); return t > 1000 && t < 150000 ? t / 1000 : t >= 0 && t < 150 ? t : -1;
+    }
+    if (!glob("/sys/class/hwmon/hwmon*/name", 0, NULL, &g)) {
+        for (i = 0; i < (int)g.gl_pathc; i++) {
+            FILE *f = fopen(g.gl_pathv[i], "r"); char *slash; glob_t sensors = {0};
+            if (!f) continue;
+            if (!fgets(name, sizeof name, f)) { fclose(f); continue; } fclose(f);
+            for (j = 0; cpu_names[j] && !strstr(name, cpu_names[j]); j++) ;
+            if (!cpu_names[j]) continue;
+            snprintf(path, sizeof path, "%s", g.gl_pathv[i]); slash = strrchr(path, '/');
+            if (!slash || (size_t)(slash - path) + sizeof "/temp*_input" > sizeof path) continue;
+            strcpy(slash, "/temp*_input");
+            if (!glob(path, 0, NULL, &sensors)) {
+                size_t k;
+                for (k = 0; k < sensors.gl_pathc; k++) {
+                    int v = read_int(sensors.gl_pathv[k]);
+                    if (v >= 1000 && v < 150000 && v / 1000 > best) best = v / 1000;
+                }
+            }
+            globfree(&sensors);
+        }
+    }
+    globfree(&g); if (best >= 0) return best;
+    memset(&g, 0, sizeof g);
+    if (!glob("/sys/class/thermal/thermal_zone*/type", 0, NULL, &g)) {
+        for (i = 0; i < (int)g.gl_pathc; i++) {
+            FILE *f = fopen(g.gl_pathv[i], "r"); char *slash; int v;
+            if (!f) continue;
+            if (!fgets(name, sizeof name, f)) { fclose(f); continue; } fclose(f);
+            for (j = 0; cpu_names[j] && !strstr(name, cpu_names[j]); j++) ;
+            if (!cpu_names[j]) continue;
+            snprintf(path, sizeof path, "%s", g.gl_pathv[i]); slash = strrchr(path, '/');
+            if (!slash) continue;
+            strcpy(slash, "/temp"); v = read_int(path);
+            if (v >= 1000 && v < 150000 && v / 1000 > best) best = v / 1000;
+        }
+    }
+    globfree(&g); return best;
 }
 static void read_stats(Bar *b) {
     FILE *f; char line[256]; unsigned long long v[8] = {0}, total = 0, idle; int i;
@@ -339,14 +417,7 @@ static void read_stats(Bar *b) {
         fclose(f);
         if (mem_total && mem_available <= mem_total) b->memory = (int)(100 * (mem_total - mem_available) / mem_total);
     }
-    b->temperature = -1; b->battery = -1;
-    if (!glob("/sys/class/thermal/thermal_zone*/temp", 0, NULL, &paths)) {
-        for (i = 0; i < (int)paths.gl_pathc; i++) {
-            int temp = read_int(paths.gl_pathv[i]);
-            if (temp > 1000 && temp < 150000) { b->temperature = temp / 1000; break; }
-        }
-    }
-    globfree(&paths); memset(&paths, 0, sizeof paths);
+    b->temperature = cpu_temperature(); b->battery = -1;
     if (!glob("/sys/class/power_supply/BAT*/capacity", 0, NULL, &paths) && paths.gl_pathc)
         b->battery = read_int(paths.gl_pathv[0]);
     globfree(&paths);
@@ -410,7 +481,7 @@ static void open_popup(Bar *b, int page) {
     attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
     attr.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
                       LeaveWindowMask | KeyPressMask | KeyReleaseMask;
-    b->popup = XCreateWindow(b->dpy, b->root, p->x + p->width - width, p->y + HEIGHT,
+    b->popup = XCreateWindow(b->dpy, b->root, p->x + p->width - width, p->y + HEIGHT + 6,
                             width, height, 0, DefaultDepth(b->dpy, b->screen), InputOutput,
                             DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
     if (!b->popup) return;
@@ -422,15 +493,54 @@ static void open_popup(Bar *b, int page) {
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
     b->popup_width = width; b->popup_height = height;
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page;
-    popup_bar = b; b->popup_dirty = 1;
+    popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0;
     XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
     if (XGrabKeyboard(b->dpy, b->popup, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
         fprintf(stderr, "cui-bar: cannot grab keyboard for control center\n"); close_popup(b); return;
     }
     cui_input_focus(b->popup_ui, true);
 }
+static void calendar_page(cui_ctx *ui, Bar *b) {
+    static const char *weekdays[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+    time_t now = time(NULL); struct tm today, month, next; char title[80], number[8];
+    int start, days, row, col, cell = (b->popup_width - 78) / 7;
+    localtime_r(&now, &today); month = today; month.tm_mday = 1;
+    month.tm_mon += b->calendar_offset; month.tm_hour = 12; month.tm_isdst = -1; mktime(&month);
+    next = month; next.tm_mon++; next.tm_mday = 0; next.tm_isdst = -1; mktime(&next);
+    days = next.tm_mday; start = (month.tm_wday + 6) % 7;
+    if (cell < 18) cell = 18;
+    strftime(title, sizeof title, "%B %Y", &month);
+    cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 12) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+            if (cui_button(ui, "<", .size = CUI_SIZE_SM)) b->calendar_offset--;
+            cui_column(ui, .width = CUI_FILL) { cui_text(ui, title, .font = CUI_FONT_MEDIUM, .size = 16); }
+            if (cui_button(ui, "Today", .size = CUI_SIZE_SM)) b->calendar_offset = 0;
+            if (cui_button(ui, ">", .size = CUI_SIZE_SM)) b->calendar_offset++;
+        }
+        cui_row(ui, .gap = 0) {
+            for (col = 0; col < 7; col++) cui_column(ui, .width = CUI_PX(cell)) {
+                cui_text(ui, weekdays[col], .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+        }
+        for (row = 0; row < 6 && row * 7 < start + days; row++) {
+            cui_row(ui, .gap = 0) {
+                for (col = 0; col < 7; col++) {
+                    int day = row * 7 + col - start + 1;
+                    cui_column(ui, .width = CUI_PX(cell), .height = CUI_PX(30)) {
+                        if (day >= 1 && day <= days) {
+                            snprintf(number, sizeof number, "%d", day);
+                            if (day == today.tm_mday && month.tm_mon == today.tm_mon && month.tm_year == today.tm_year)
+                                cui_text(ui, number, .font = CUI_FONT_MEDIUM, .color = CUI_COLOR_ACCENT);
+                            else cui_text(ui, number);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 static int draw_popup(Bar *b) {
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Wallpaper"};
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Calendar"};
     XImage *image;
     cui_ctx *ui = b->popup_ui;
     if (!b->popup || !ui) return 1;
@@ -458,7 +568,7 @@ static int draw_popup(Bar *b) {
         else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
         else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
         else if (popup_state.page == 3) display_page(ui, &popup_state, &b->desktop, b->worker_busy);
-        else wallpaper_page(ui, &popup_state, &b->desktop, b->worker_busy);
+        else calendar_page(ui, b);
     }
     cui_end_frame(ui);
     cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
@@ -532,39 +642,47 @@ static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const ch
 }
 static void dock_cell(cui_ctx *ui, int x, int w, const char *title, const char *value, cui_color accent) {
     cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1b212b));
-    cui_draw_rect(ui, (cui_rect){x + 4, 9, 2, 18}, CUI_CORNERS(1), accent);
+    cui_draw_rect(ui, (cui_rect){x + 4, 12, 2, 18}, CUI_CORNERS(1), accent);
     cui_push_clip(ui, (cui_rect){x + 9, 4, w - 10, HEIGHT - 8});
-    label(ui, x + 10, 6, 9, CUI_RGB(0x919eaf), title);
-    label(ui, x + 10, 17, 11, CUI_RGB(0xe5e9f0), value);
+    label(ui, x + 10, 9, 9, CUI_RGB(0x919eaf), title);
+    label(ui, x + 10, 20, 11, CUI_RGB(0xe5e9f0), value);
     cui_pop_clip(ui);
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[48];
     cui_color fg = CUI_RGB(0xe5e9f0), muted = CUI_RGB(0x919eaf), blue = CUI_RGB(0xb8cfe1), white = CUI_RGB(0xf1f4f8);
     (void)r;
-    cui_draw_rect(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(0), CUI_RGB(0x10131a));
-    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x303a47));
+    cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x171c25), CUI_RGB(0x35404e), 1);
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 5, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x394451));
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 28, 12, 2}, CUI_CORNERS(1), white);
-            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 27}, 1.5f, blue);
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 8, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x394451));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 31, 12, 2}, CUI_CORNERS(1), white);
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 30}, 1.5f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            label(ui, x + 10, 10, 12, b->urgent & mask ? CUI_RGB(0xd8aeb5) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
+            label(ui, x + 10, 13, 12, b->urgent & mask ? CUI_RGB(0xd8aeb5) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
         }
     }
     if (l.stats) {
         int x = l.tags + b->tag_count * 28 + 22;
-        label(ui, x, 6, 9, muted, "SYSTEM");
+        label(ui, x, 8, 9, muted, "SYSTEM");
         snprintf(text, sizeof text, "CPU %s", b->cpu < 0 ? "--" : "");
         if (b->cpu >= 0) snprintf(text, sizeof text, "CPU %d%%", b->cpu);
-        label(ui, x, 17, 11, fg, text);
+        label(ui, x, 20, 11, fg, text);
         if (b->memory >= 0) snprintf(text, sizeof text, "MEM %d%%", b->memory); else strcpy(text, "MEM --");
-        label(ui, x + 75, 17, 11, fg, text);
+        label(ui, x + 75, 20, 11, fg, text);
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        label(ui, x + 150, 17, 11, muted, text);
-        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 205, 17, 11, b->battery <= 15 ? CUI_RGB(0xd8aeb5) : fg, text); }
+        label(ui, x + 150, 20, 11, muted, text);
+        label(ui, x + 150, 8, 9, muted, "TEMP");
+        if (b->cpu >= 0) {
+            cui_draw_rect(ui, (cui_rect){x, 34, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
+            cui_draw_rect(ui, (cui_rect){x, 34, 55 * b->cpu / 100.0f, 2}, CUI_CORNERS(1), blue);
+        }
+        if (b->memory >= 0) {
+            cui_draw_rect(ui, (cui_rect){x + 75, 34, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
+            cui_draw_rect(ui, (cui_rect){x + 75, 34, 55 * b->memory / 100.0f, 2}, CUI_CORNERS(1), CUI_RGB(0xc7bddc));
+        }
+        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 215, 20, 11, b->battery <= 15 ? CUI_RGB(0xd8aeb5) : fg, text); }
     }
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
     dock_cell(ui, l.audio, 62, "SOUND", text, blue);
@@ -575,10 +693,10 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
         if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
     dock_cell(ui, l.bluetooth, 54, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
-    label(ui, l.language + 5, 12, 11, muted, b->language);
+    label(ui, l.language + 5, 15, 11, muted, b->language);
     cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x252e3a));
-    label(ui, l.clock + 11, 10, 13, white, b->clock);
-    label(ui, l.lock + 8, 11, 12, muted, "L");
+    label(ui, l.clock + 11, 13, 13, white, b->clock);
+    label(ui, l.lock + 8, 14, 12, muted, "L");
 }
 static int draw(Bar *b) {
     XImage *image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
@@ -618,7 +736,7 @@ static void clicked(Bar *b, XButtonEvent *e) {
         else if (e->button == Button3 && b->snapshot.bluetooth_available)
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
     }
-    else if (x >= l.clock && x < l.clock + 64 && e->button == Button1) open_popup(b, 3);
+    else if (x >= l.clock && x < l.clock + 64 && e->button == Button1) open_popup(b, 4);
     else if (x >= l.lock && e->button == Button1) launch("mel");
 }
 
@@ -671,7 +789,7 @@ int main(void) {
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
         struct timeval timeout; time_t now = time(NULL);
-        if (now >= next_stats) { read_stats(&b); next_stats = now + 5; dirty = 1; }
+        if (now >= next_stats) { read_stats(&b); next_stats = now + 1; dirty = 1; }
         if (dirty) {
             for (i = 0; i < b.panel_count; i++) {
                 use_panel(&b, i);

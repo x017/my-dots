@@ -1,32 +1,16 @@
 /* Desktop controls run in the existing service worker, never the X event loop. */
 #define DESKTOP_OUTPUTS 16
 #define DESKTOP_MODES 192
-#define DESKTOP_WALLPAPERS 100
 #define ACT_DISPLAY_APPLY ((Action)(ACT_AUDIO_VOLUME + 1))
-#define ACT_WALLPAPER_APPLY ((Action)(ACT_AUDIO_VOLUME + 2))
 typedef struct { char output[128], mode[64], rate[32]; int current; } DisplayMode;
 typedef struct {
     char outputs[DESKTOP_OUTPUTS][128]; int output_count;
     DisplayMode modes[DESKTOP_MODES]; int mode_count, xrandr_available;
-    char wallpaper_names[DESKTOP_WALLPAPERS][256]; int wallpaper_count, wallpaper_available;
 } DesktopState;
 
-static int wallpaper_dir(char *path, size_t cap) {
-    const char *dir = getenv("DWM_WALLPAPERS_DIR"), *home = getenv("HOME"); int n;
-    if (dir && *dir) n = snprintf(path, cap, "%s", dir);
-    else if (home && *home) n = snprintf(path, cap, "%s/Downloads/wallpaper", home);
-    else n = snprintf(path, cap, ".");
-    return n >= 0 && (size_t)n < cap;
-}
-static int wallpaper_ext(const char *name) {
-    const char *p = strrchr(name, '.');
-    return p && (!strcasecmp(p, ".jpg") || !strcasecmp(p, ".jpeg") || !strcasecmp(p, ".png") ||
-                 !strcasecmp(p, ".webp") || !strcasecmp(p, ".bmp") || !strcasecmp(p, ".gif"));
-}
-static int wallpaper_cmp(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
 static void desktop_read(DesktopState *d) {
-    char output[MAX_OUTPUT], dir[PATH_MAX], current[128] = "", *line, *save;
-    char *argv[] = {"xrandr", "--query", NULL}; DIR *dp; struct dirent *entry;
+    char output[MAX_OUTPUT], current[128] = "", *line, *save;
+    char *argv[] = {"xrandr", "--query", NULL};
     memset(d, 0, sizeof *d);
     if (!run_command(argv, NULL, output, sizeof output, 4000)) {
         d->xrandr_available = 1;
@@ -54,17 +38,7 @@ static void desktop_read(DesktopState *d) {
             }
         }
     }
-    if (!wallpaper_dir(dir, sizeof dir) || !(dp = opendir(dir))) return;
-    d->wallpaper_available = 1;
-    while ((entry = readdir(dp))) {
-        char path[PATH_MAX]; struct stat st;
-        if (entry->d_name[0] == '.' || !wallpaper_ext(entry->d_name)) continue;
-        if (snprintf(path, sizeof path, "%s/%s", dir, entry->d_name) >= (int)sizeof path || stat(path, &st) || !S_ISREG(st.st_mode)) continue;
-        if (d->wallpaper_count < DESKTOP_WALLPAPERS)
-            copystr(d->wallpaper_names[d->wallpaper_count++], sizeof d->wallpaper_names[0], entry->d_name);
-    }
-    closedir(dp);
-    qsort(d->wallpaper_names, d->wallpaper_count, sizeof d->wallpaper_names[0], wallpaper_cmp);
+
 }
 /* Match dwm's existing per-output restore file. */
 static int desktop_save_mode(const char *output, const char *mode, const char *rate) {
@@ -96,7 +70,7 @@ static int desktop_save_mode(const char *output, const char *mode, const char *r
     unlink(tmp); return 0;
 }
 static int desktop_execute(Request *r, char *message, size_t cap) {
-    char out[MAX_OUTPUT], path[PATH_MAX], dir[PATH_MAX];
+    char out[MAX_OUTPUT];
     if (r->type == ACT_DISPLAY_APPLY) {
         char mode[64], rate[32], extra; char *argv[] = {"xrandr", "--output", r->arg, "--mode", mode, "--rate", rate, NULL};
         if (strpbrk(r->arg, " \t\r\n") || sscanf(r->password, "%63s %31s %c", mode, rate, &extra) != 2) return -1;
@@ -104,12 +78,6 @@ static int desktop_execute(Request *r, char *message, size_t cap) {
         if (!desktop_save_mode(r->arg, mode, rate)) { copystr(message, cap, "Display applied, but could not save for restart."); return 1; }
         copystr(message, cap, "Display mode applied and saved."); return 0;
     }
-    if (r->type == ACT_WALLPAPER_APPLY) {
-        char *argv[] = {"feh", "--bg-fill", "--", path, NULL}; struct stat st;
-        if (!r->password[0] || r->password[0] == '.' || strchr(r->password, '/') || !wallpaper_ext(r->password) ||
-            !wallpaper_dir(dir, sizeof dir) || snprintf(path, sizeof path, "%s/%s", dir, r->password) >= (int)sizeof path ||
-            stat(path, &st) || !S_ISREG(st.st_mode) || run_command(argv, NULL, out, sizeof out, 15000)) return -1;
-        copystr(message, cap, "Wallpaper applied. Choose another any time."); return 0;
-    }
+
     return -1;
 }

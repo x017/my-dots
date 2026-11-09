@@ -686,7 +686,8 @@ typedef struct {
   void (*render)(int, int, int, int);
   void (*freeimage)(void);
   void *(*scaled)(int, int, int, int, int, int);
-  void (*save)(const char *);
+  unsigned int *(*pixels)(void);
+  void *(*createcopy)(int, int, unsigned int *);
 } WallpaperImages;
 
 static int
@@ -711,7 +712,8 @@ wallpaperimagesinit(WallpaperImages *api)
   LOADIMLIB(render, "imlib_render_image_on_drawable_at_size");
   LOADIMLIB(freeimage, "imlib_free_image");
   LOADIMLIB(scaled, "imlib_create_cropped_scaled_image");
-  LOADIMLIB(save, "imlib_save_image");
+  LOADIMLIB(pixels, "imlib_image_get_data_for_reading_only");
+  LOADIMLIB(createcopy, "imlib_create_image_using_copied_data");
 #undef LOADIMLIB
   api->display(dpy);
   api->visual(DefaultVisual(dpy, screen));
@@ -743,8 +745,8 @@ wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *sou
   pid_t child;
   wallpaperpreviewcancel(p);
   if (maxw < 1 || maxh < 1) return 0;
-  snprintf(p->path, sizeof p->path, "/tmp/dwm-wallpaper-XXXXXX.png");
-  fd = mkstemps(p->path, 4);
+  snprintf(p->path, sizeof p->path, "/tmp/dwm-wallpaper-XXXXXX");
+  fd = mkstemp(p->path);
   if (fd < 0) { p->path[0] = '\0'; return 0; }
   close(fd);
   if (pipe(fds) < 0) { unlink(p->path); p->path[0] = '\0'; return 0; }
@@ -752,12 +754,11 @@ wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *sou
   if (child == 0) {
     void *image, *small;
     int w, h, swidth, sheight, ok = 0;
-    struct stat st;
     close(fds[0]);
-    close(ConnectionNumber(dpy));
-    /* The decoder does not need X. Never let Imlib use the inherited,
-     * now-closed display while decoding and saving in this helper. */
+    /* The decoder does not need X. Do not use the inherited display from
+     * the helper, whose copy of the X connection is about to be closed. */
     api->display(NULL);
+    close(ConnectionNumber(dpy));
     image = api->load(source);
     if (image) {
       api->image(image); w = api->width(); h = api->height();
@@ -766,8 +767,17 @@ wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *sou
         if (sheight > maxh) { sheight = maxh; swidth = (int)((double)w * sheight / h); }
         small = api->scaled(0, 0, w, h, MAX(1, swidth), MAX(1, sheight));
         if (small) {
-          api->image(small); api->save(p->path); api->freeimage();
-          if (!stat(p->path, &st) && st.st_size > 0) ok = 1;
+          unsigned int *pixels;
+          FILE *out;
+          int dims[2] = { MAX(1, swidth), MAX(1, sheight) };
+          api->image(small); pixels = api->pixels();
+          out = pixels ? fopen(p->path, "wb") : NULL;
+          if (out) {
+            size_t count = (size_t)dims[0] * dims[1];
+            ok = fwrite(dims, sizeof dims, 1, out) == 1 && fwrite(pixels, sizeof *pixels, count, out) == count;
+            if (fclose(out)) ok = 0;
+          }
+          api->freeimage();
         }
       }
       api->image(image); api->freeimage();
@@ -780,6 +790,21 @@ wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *sou
   if (child < 0) { close(fds[0]); unlink(p->path); p->path[0] = '\0'; return 0; }
   p->pid = child; p->fd = fds[0];
   return 1;
+}
+
+/* The helper passes decoded pixels, not a PNG that would require a second
+ * image loader and could be lazily read after its temporary file is removed. */
+static void *
+wallpaperpreviewload(WallpaperImages *api, const char *path)
+{
+  FILE *in = fopen(path, "rb");
+  int dims[2]; unsigned int *pixels; size_t count; void *image = NULL;
+  if (!in) return NULL;
+  if (fread(dims, sizeof dims, 1, in) != 1 || dims[0] < 1 || dims[1] < 1 || dims[0] > 4096 || dims[1] > 4096) { fclose(in); return NULL; }
+  count = (size_t)dims[0] * dims[1]; pixels = malloc(count * sizeof *pixels);
+  if (pixels && fread(pixels, sizeof *pixels, count, in) == count)
+    image = api->createcopy(dims[0], dims[1], pixels);
+  free(pixels); fclose(in); return image;
 }
 
 static int
@@ -903,6 +928,25 @@ void wallpaperswitcher(const Arg *arg)
   } else directory = strdup(".");
   if (!directory) die("strdup:");
   paths = wallpaperscan(directory, &count, message, sizeof message);
+  /* On fresh installs the default folder may be empty. Look in common
+   * wallpaper directories too, but never override an explicit setting. */
+  if (!count && (!folder || !*folder) && home && *home) {
+    static const char *alternatives[] = { "/Pictures/Wallpapers", "/Pictures/wallpapers", "/wallpapers" };
+    size_t i;
+    for (i = 0; i < LENGTH(alternatives); i++) {
+      size_t n = strlen(home) + strlen(alternatives[i]) + 1, found = 0;
+      char *candidate = malloc(n), note[512], **other;
+      if (!candidate) break;
+      snprintf(candidate, n, "%s%s", home, alternatives[i]);
+      other = wallpaperscan(candidate, &found, note, sizeof note);
+      if (found) {
+        wallpaperfree(paths, count); free(directory);
+        directory = candidate; paths = other; count = found;
+        snprintf(message, sizeof message, "%s", note); break;
+      }
+      wallpaperfree(other, found); free(candidate);
+    }
+  }
   if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
     wallpaperfree(paths, count); free(directory); return;
   }
@@ -992,7 +1036,7 @@ void wallpaperswitcher(const Arg *arg)
         int ok = 0;
         if (read(worker.fd, &ok, sizeof ok) != sizeof ok) ok = 0;
         close(worker.fd); worker.fd = -1; worker.pid = 0;
-        if (ok) image = api.load(worker.path);
+        if (ok) image = wallpaperpreviewload(&api, worker.path);
         preview_failed = !image;
         unlink(worker.path); worker.path[0] = '\0';
         continue;
@@ -1598,9 +1642,11 @@ void clientmessage(XEvent *e) {
     } else if (cme->data.l[0] == 2 && m) {
       XWindowAttributes a;
       Window w = (Window)cme->data.l[1];
+      int reserve;
       if (w && XGetWindowAttributes(dpy, w, &a) && a.override_redirect && a.height > 0 && a.height <= 128 &&
-          (m->externalbar != w || m->externalbarheight != a.height)) {
-        m->externalbar = w; m->externalbarheight = a.height;
+          a.y >= m->my && (reserve = a.y - m->my + a.height) <= 160 && reserve < m->mh &&
+          (m->externalbar != w || m->externalbarheight != reserve)) {
+        m->externalbar = w; m->externalbarheight = reserve;
         updateworkarea(m); arrange(m); publishbar();
       }
     }

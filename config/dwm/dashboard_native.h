@@ -47,6 +47,7 @@ dashboardworker(int fd)
       }
       n = execute(&req);
       if (!n) copystr(message, sizeof message, "Done.");
+      else if (dashboard_action_error[0]) copystr(message, sizeof message, dashboard_action_error);
       else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
       else if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
       else copystr(message, sizeof message, "Action failed. Check device, service and permissions.");

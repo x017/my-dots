@@ -184,6 +184,8 @@ static void read_snapshot(Snapshot *s) {
 
 #endif /* DASHBOARD_NO_SNAPSHOT */
 
+/* Last command result is worker-local and never includes Wi-Fi secrets. */
+static char dashboard_action_error[256];
 static int execute(Request *r) {
     char out[MAX_OUTPUT], secret[320], number[32];
     char *wifi_on[] = {"nmcli", "radio", "wifi", "on", NULL};
@@ -201,7 +203,7 @@ static int execute(Request *r) {
     char *audio_mute[] = {"pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle", NULL};
     char *audio_volume[] = {"pactl", "set-sink-volume", "@DEFAULT_SINK@", number, NULL};
     char **command = NULL; int timeout = 5000, rc;
-    secret[0] = '\0';
+    secret[0] = '\0'; dashboard_action_error[0] = '\0';
     switch (r->type) {
     case ACT_WIFI_ON: command = wifi_on; break; case ACT_WIFI_OFF: command = wifi_off; break;
     case ACT_WIFI_SCAN: command = wifi_scan; timeout = 12000; break;
@@ -223,8 +225,17 @@ static int execute(Request *r) {
     rc = run_command(command, secret[0] ? secret : NULL, out, sizeof out, timeout);
     /* bluetoothctl often exits zero even for a command-level failure. */
     if (command[0] && !strcmp(command[0], "bluetoothctl")) {
-        if (strstr(out, "Failed") || strstr(out, "not available") || strstr(out, "No default controller")) rc = 1;
+        if (strstr(out, "Failed") || strstr(out, "not available") || strstr(out, "No default controller") ||
+            strstr(out, "NotAuthorized") || strstr(out, "Not authorized") || strstr(out, "Permission denied") ||
+            strstr(out, "not permitted") || strstr(out, "AuthenticationFailed")) rc = 1;
         else if (r->type == ACT_BT_SCAN && strstr(out, "Discovery started")) rc = 0;
+        if (rc) {
+            if (strstr(out, "NotAuthorized") || strstr(out, "Not authorized") || strstr(out, "Permission denied") || strstr(out, "not permitted"))
+                copystr(dashboard_action_error, sizeof dashboard_action_error, "Bluetooth authorization denied. Check your active login session and polkit agent.");
+            else if (strstr(out, "Authentication") || r->type == ACT_BT_PAIR)
+                copystr(dashboard_action_error, sizeof dashboard_action_error, "Bluetooth pairing needs an active pairing agent or device confirmation.");
+            else copystr(dashboard_action_error, sizeof dashboard_action_error, "Bluetooth action failed. Check Bluetooth service and device.");
+        }
     }
     wipe(secret, sizeof secret); wipe(out, sizeof out);
     return rc;

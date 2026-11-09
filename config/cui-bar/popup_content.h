@@ -1,7 +1,7 @@
 /* CUI control-center widgets shared in behavior with dwm dashboard. */
 typedef struct {
     char selected_wifi[32], selected_bt[32], password[256];
-    char display_output[128], wallpaper[256];
+    char display_output[128];
     float volume;
     int page, initialized_volume, volume_pending;
 } UIState;
