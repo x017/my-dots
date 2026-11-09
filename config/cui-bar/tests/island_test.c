@@ -8,8 +8,9 @@ static void script(const char *dir, const char *name, const char *body) {
 }
 int main(void) {
     char dir[] = "/tmp/cui-island-test-XXXXXX", path[1024], action_script[2048], logpath[512]; IslandFrame f = {0};
-    const char *json = "{\"type\":\"aa{sv}\",\"data\":[[{\"appname\":{\"type\":\"s\",\"data\":\"Mail\"},\"summary\":{\"type\":\"s\",\"data\":\"Hello \\\"world\\\" \\u263a\"},\"body\":{\"type\":\"s\",\"data\":\"Line 1\\nLine 2\"}},{\"summary\":{\"type\":\"s\",\"data\":\"Another\"}}]]}";
+    const char *json = "{\"type\":\"aa{sv}\",\"data\":[[{\"id\":{\"type\":\"i\",\"data\":42},\"appname\":{\"type\":\"s\",\"data\":\"Mail\"},\"summary\":{\"type\":\"s\",\"data\":\"Hello \\\"world\\\" \\u263a\"},\"body\":{\"type\":\"s\",\"data\":\"Line 1\\nLine 2\"}},{\"summary\":{\"type\":\"s\",\"data\":\"Another\"}}]]}";
     island_history(json, &f); assert(f.notice_count == 2);
+    assert(f.notices[0].id == 42 && f.notices[1].id == 0);
     assert(!strcmp(f.notices[0].app, "Mail"));
     assert(!strcmp(f.notices[0].title, "Hello \"world\" \xe2\x98\xba"));
     assert(!strcmp(f.notices[0].body, "Line 1 Line 2"));
@@ -23,8 +24,10 @@ int main(void) {
     snprintf(logpath, sizeof logpath, "%s/action", dir);
     snprintf(action_script, sizeof action_script, "#!/bin/sh\ncase \"$1\" in status) echo Playing;; metadata) printf 'Artist\\tTrack\\n';; *) printf '%%s' \"$1\" > '%s';; esac\n", logpath);
     script(dir, "playerctl", action_script);
+    snprintf(action_script, sizeof action_script, "#!/bin/sh\ncase \"$1\" in count) printf 'Waiting: 0\\nCurrently displayed: 0\\nHistory: 0\\n';; history-rm) printf '%%s %%s' \"$1\" \"$2\" > '%s';; esac\n", logpath);
+    script(dir, "dunstctl", action_script);
     {
-        int pair[2], action = ISLAND_NEXT; pid_t child; struct pollfd poller; FILE *log; char value[32] = {0};
+        int pair[2]; IslandRequest action = {ISLAND_NEXT, 0}; pid_t child; struct pollfd poller; FILE *log; char value[32] = {0};
         assert(!socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair));
         child = fork(); assert(child >= 0);
         if (!child) { close(pair[0]); island_worker(pair[1]); }
@@ -33,6 +36,11 @@ int main(void) {
         assert(send(pair[0], &action, sizeof action, 0) == sizeof action);
         assert(poll(&poller, 1, 5000) == 1 && recv(pair[0], &f, sizeof f, 0) == sizeof f);
         log = fopen(logpath, "r"); assert(log); assert(fgets(value, sizeof value, log)); fclose(log); assert(!strcmp(value, "next"));
+        action = (IslandRequest){ISLAND_DISMISS, 42};
+        assert(send(pair[0], &action, sizeof action, 0) == sizeof action);
+        assert(poll(&poller, 1, 5000) == 1 && recv(pair[0], &f, sizeof f, 0) == sizeof f);
+        memset(value, 0, sizeof value); log = fopen(logpath, "r"); assert(log);
+        assert(fgets(value, sizeof value, log)); fclose(log); assert(!strcmp(value, "history-rm 42"));
         close(pair[0]); assert(waitpid(child, NULL, 0) == child); unlink(logpath);
     }
     assert(!setenv("PATH", "/nonexistent", 1)); island_sample(&f);

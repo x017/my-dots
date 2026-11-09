@@ -275,10 +275,12 @@ static int start_island(Bar *b) {
     fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
     b->island_fd = fd[0]; return 1;
 }
-static void island_action(Bar *b, int action) {
-    if (b->island_fd >= 0 && send(b->island_fd, &action, sizeof action, MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof action)
-        fprintf(stderr, "cui-bar: could not queue media action\n");
+static void island_request(Bar *b, int action, int id) {
+    IslandRequest request = {action, id};
+    if (b->island_fd >= 0 && send(b->island_fd, &request, sizeof request, MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof request)
+        fprintf(stderr, "cui-bar: could not queue island action\n");
 }
+static void island_action(Bar *b, int action) { island_request(b, action, 0); }
 static void next_keyboard_layout(Bar *b) {
     XkbStateRec state; XkbDescPtr keyboard = XkbGetMap(b->dpy, 0, XkbUseCoreKbd);
     if (!keyboard) return;
@@ -651,11 +653,19 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
         }
         for (i = 0; i < b->island.notice_count; i++) {
             const IslandNotice *n = &b->island.notices[i];
+            cui_push_id_int(ui, n->id ? n->id : -(i + 1));
             cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 5) {
-                cui_text(ui, n->app[0] ? n->app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
+                cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+                    cui_column(ui, .width = CUI_FILL) {
+                        cui_text(ui, n->app[0] ? n->app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
+                    }
+                    if (cui_button(ui, "Dismiss", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST, .disabled = !n->id || b->island_fd < 0))
+                        island_request(b, ISLAND_DISMISS, n->id);
+                }
                 cui_text(ui, n->title[0] ? n->title : "Notification", .font = CUI_FONT_MEDIUM, .size = 14);
                 if (n->body[0]) cui_text(ui, n->body, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
             }
+            cui_pop_id(ui);
         }
     }
 }

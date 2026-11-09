@@ -3,13 +3,14 @@
 #define ISLAND_JSON_TOKENS 16384
 #define ISLAND_JSON_CAP 262144
 
-typedef struct { char app[96], title[192], body[384]; } IslandNotice;
+typedef struct { int id; char app[96], title[192], body[384]; } IslandNotice;
 typedef struct {
     int player_available, playing, notifications_available, history_count, active_count, notice_count;
     char artist[160], title[192];
     IslandNotice notices[ISLAND_NOTICES];
 } IslandFrame;
-enum { ISLAND_PREVIOUS = 1, ISLAND_TOGGLE, ISLAND_NEXT };
+enum { ISLAND_PREVIOUS = 1, ISLAND_TOGGLE, ISLAND_NEXT, ISLAND_DISMISS };
+typedef struct { int action, id; } IslandRequest;
 
 /* Minimal bounded JSON token tree for busctl's typed variant output. */
 typedef struct { int start, end, parent, next; } IslandToken;
@@ -114,6 +115,15 @@ static void island_history(const char *json, IslandFrame *frame) {
         IslandNotice *notice;
         if (t[i].parent != array || json[t[i].start] != '{') break;
         notice = &frame->notices[frame->notice_count++]; memset(notice, 0, sizeof *notice);
+        {
+            int v = island_key(json, t, i, n, "id");
+            char *end; long id;
+            if (v >= 0) v = island_key(json, t, v, n, "data");
+            if (v >= 0) {
+                errno = 0; id = strtol(json + t[v].start, &end, 10);
+                if (!errno && end == json + t[v].end && id > 0 && id <= INT_MAX) notice->id = (int)id;
+            }
+        }
         island_variant_string(json, t, n, i, "appname", notice->app, sizeof notice->app);
         island_variant_string(json, t, n, i, "summary", notice->title, sizeof notice->title);
         island_variant_string(json, t, n, i, "body", notice->body, sizeof notice->body);
@@ -157,7 +167,7 @@ static void island_worker(int fd) {
     IslandFrame frame; struct pollfd p = {.fd = fd, .events = POLLIN};
     signal(SIGCHLD, SIG_DFL); signal(SIGPIPE, SIG_IGN);
     for (;;) {
-        int ready, action; char out[256];
+        int ready; IslandRequest request; char out[256];
         island_sample(&frame);
         if (send(fd, &frame, sizeof frame, MSG_NOSIGNAL) != sizeof frame) break;
         /* Faster updates without polling on the X11 render thread. */
@@ -165,10 +175,15 @@ static void island_worker(int fd) {
         if (ready < 0 && errno == EINTR) continue;
         if (ready < 0 || (p.revents & (POLLHUP | POLLERR | POLLNVAL))) break;
         if (ready && (p.revents & POLLIN)) {
-            if (recv(fd, &action, sizeof action, 0) != sizeof action) break;
-            if (action >= ISLAND_PREVIOUS && action <= ISLAND_NEXT) {
-                char *argv[] = {"playerctl", action == ISLAND_PREVIOUS ? "previous" : action == ISLAND_TOGGLE ? "play-pause" : "next", NULL};
+            if (recv(fd, &request, sizeof request, 0) != sizeof request) break;
+            if (request.action >= ISLAND_PREVIOUS && request.action <= ISLAND_NEXT) {
+                char *argv[] = {"playerctl", request.action == ISLAND_PREVIOUS ? "previous" : request.action == ISLAND_TOGGLE ? "play-pause" : "next", NULL};
                 run_command(argv, NULL, out, sizeof out, 800);
+            } else if (request.action == ISLAND_DISMISS && request.id > 0) {
+                char id[32]; char *argv[] = {"dunstctl", "history-rm", id, NULL};
+                snprintf(id, sizeof id, "%d", request.id);
+                if (run_command(argv, NULL, out, sizeof out, 1200))
+                    fprintf(stderr, "cui-bar: could not remove notification %s from Dunst history\n", id);
             }
         }
     }

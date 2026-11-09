@@ -61,7 +61,10 @@ start or replace a notification daemon. The number is displayed/waiting
 notifications when present, otherwise the size of Dunst's history, not an
 unread count. Dunst reports history after notifications leave the screen, so
 new arrivals initially show a generic alert and their details appear in history
-afterward. Other notification daemons are not currently supported. If Dunst or
+afterward. Each history entry with an ID has a Dismiss button that removes that
+entry from Dunst history via `dunstctl history-rm` (requires a Dunst version
+that supports this command). This does not act on live popups. Other notification
+daemons are not currently supported. If Dunst or
 playerctl is missing, the corresponding feature is shown as unavailable. On
 narrow monitors the island shrinks; right-click the dashboard button to open
 its notification/media panel if the island cannot fit. Tray capacity may shrink
