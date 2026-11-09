@@ -135,6 +135,7 @@ static const Key keys[] = {
     {MODKEY, XK_l, setmfact, {.f = +0.05}},
     {MODKEY, XK_Return, zoom, {0}},
     {MODKEY, XK_Tab, alttab, {.i = +1}},
+    {MODKEY, XK_grave, monitorswitcher, {0}},
     {MODKEY | ShiftMask, XK_Tab, alttab, {.i = -1}},
     {MODKEY | ControlMask, XK_Tab, view, {0}},
     {MODKEY, XK_c, killclient, {0}},

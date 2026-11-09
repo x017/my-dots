@@ -59,3 +59,14 @@ popup shows a live preview of the selected window using XComposite, XDamage
 and XRender, alongside window titles. It uses the Quickshell palette and
 monospace font. If the X server lacks those extensions, titles still work. Alt+Ctrl+Tab retains the previous-tag shortcut.
 Rebuild and restart dwm after changing the configuration.
+
+Monitor switcher
+----------------
+With at least two monitors, hold Alt and press ` (grave) to open the monitor
+switcher. It previews the windows on each monitor's currently visible tags in
+a miniature layout and lists their titles. Press `, Tab or the arrow keys to
+choose a display; Shift reverses cycling. Release Alt or press Enter to focus
+the selected monitor and move the pointer there; Escape cancels. For more
+than three monitors, the cards page automatically as you cycle. The previews
+use the same X extensions and fallback as the window switcher. Existing
+Alt+comma and Alt+period monitor focus shortcuts still work.

@@ -201,6 +201,7 @@ struct Systray {
 
 /* function declarations */
 static void alttab(const Arg *arg);
+static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h,
                           int interact);
@@ -571,6 +572,170 @@ void alttab(const Arg *arg) {
     if (!ISVISIBLE(c)) { Arg a = {.ui = c->tags}; view(&a); }
     focus(c); restack(selmon);
   }
+}
+
+/* Preview each monitor's current tag as a miniature layout. Window IDs, not
+ * Client pointers, are retained across events so closing a window is safe. */
+void monitorswitcher(const Arg *arg) {
+  Monitor *m, *origin = selmon, **screens;
+  Client *c;
+  Window *wins, popup;
+  Damage *damage;
+  XEvent ev;
+  XSetWindowAttributes wa;
+  Drw *d;
+  Clr *head, *normal, *selected, *blue;
+  const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
+  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
+  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
+  unsigned int nm = 0, nw = 0, i, j, first, slots, active = 0;
+  int width, height, pad = 16, rh, cardw, cardh, previewh;
+  int done = 0, accept = 0, havepreview, ce, cr, de, dr, re, rr, major, minor;
+  int (*oldhandler)(Display *, XErrorEvent *);
+  char text[512];
+  KeySym key;
+
+  (void)arg;
+  for (m = mons; m; m = m->next) {
+    nm++;
+    for (c = m->clients; c; c = c->next) if (ISVISIBLE(c)) nw++;
+  }
+  if (nm < 2) return;
+  screens = ecalloc(nm, sizeof(Monitor *));
+  wins = ecalloc(MAX(1, nw), sizeof(Window));
+  damage = ecalloc(MAX(1, nw), sizeof(Damage));
+  for (m = mons, i = 0, j = 0; m; m = m->next, i++) {
+    screens[i] = m;
+    if (m == origin) active = i;
+    for (c = m->clients; c; c = c->next) if (ISVISIBLE(c)) wins[j++] = c->win;
+  }
+  if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
+    free(screens); free(wins); free(damage); return;
+  }
+  havepreview = XCompositeQueryExtension(dpy, &ce, &cr) &&
+                XDamageQueryExtension(dpy, &de, &dr) &&
+                XRenderQueryExtension(dpy, &re, &rr) &&
+                XCompositeQueryVersion(dpy, &major, &minor) && (major > 0 || minor >= 2);
+  if (havepreview) {
+    XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+    for (i = 0; i < nw; i++) {
+      XCompositeRedirectWindow(dpy, wins[i], CompositeRedirectAutomatic);
+      damage[i] = XDamageCreate(dpy, wins[i], XDamageReportNonEmpty);
+    }
+    XSync(dpy, False); XSetErrorHandler(oldhandler);
+  }
+  width = MAX(1, MIN(1100, origin->mw - 20));
+  height = MAX(1, MIN(500, origin->mh - 20));
+  rh = MAX(28, bh + 4);
+  slots = MIN(nm, width >= 850 ? 3U : (width >= 450 ? 2U : 1U));
+  cardw = MAX(1, (width - (int)(slots + 1) * pad) / (int)slots);
+  cardh = MAX(1, height - 3 * rh - 2 * pad);
+  previewh = MAX(1, cardh * 2 / 3 - rh);
+  wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
+  wa.event_mask = ExposureMask;
+  popup = XCreateWindow(dpy, root, origin->mx + (origin->mw - width) / 2,
+                        origin->my + (origin->mh - height) / 2, width, height, 1,
+                        DefaultDepth(dpy, screen), CopyFromParent, DefaultVisual(dpy, screen),
+                        CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
+  d = drw_create(dpy, screen, root, width, height);
+  drw_fontset_create(d, font, LENGTH(font));
+  head = drw_scm_create(d, hc, 3); normal = drw_scm_create(d, nc, 3);
+  selected = drw_scm_create(d, sc, 3); blue = drw_scm_create(d, bc, 3);
+  XSetWindowBorder(dpy, popup, head[ColBorder].pixel); XMapRaised(dpy, popup);
+  active = (active + 1) % nm;
+  while (!done && running) {
+    first = (active / slots) * slots;
+    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 1);
+    drw_text(d, pad, pad, MAX(1, width - 2 * pad), rh, 4, "M O N I T O R S", 0);
+    drw_setscheme(d, blue);
+    if (width > 300) drw_text(d, width - pad - 120, pad, 120, rh, 4, "LIVE PREVIEW", 0);
+    drw_setscheme(d, head);
+    drw_rect(d, pad, pad + rh, MAX(1, width - 2 * pad), 1, 1, 0);
+    for (i = 0; i < slots && first + i < nm; i++) {
+      int x = pad + i * (cardw + pad), y = pad + rh + 12;
+      int px = x + 8, py = y + rh + 4, pw = MAX(1, cardw - 16);
+      int listy = py + previewh + 8, lines = 0;
+      m = screens[first + i];
+      drw_setscheme(d, first + i == active ? selected : normal);
+      drw_rect(d, x, y, cardw, cardh, 1, 1);
+      drw_rect(d, x, y, cardw, cardh, 0, 0);
+      snprintf(text, sizeof text, "DISPLAY %u%s", m->num + 1, m == origin ? "  / CURRENT" : "");
+      drw_text(d, x + 1, y + 1, MAX(1, cardw - 2), rh, 8, text, 0);
+      drw_setscheme(d, head); drw_rect(d, px, py, pw, previewh, 1, 1);
+      /* Use dwm's window geometries to preserve the spatial layout. */
+      for (j = 0; j < nw; j++) {
+        int wx, wy, ww, wh;
+        c = wintoclient(wins[j]);
+        if (!c || c->mon != m || !ISVISIBLE(c)) continue;
+        wx = MAX(0, MIN(pw - 1, (int)((long)(c->x - m->mx) * pw / MAX(1, m->mw))));
+        wy = MAX(0, MIN(previewh - 1, (int)((long)(c->y - m->my) * previewh / MAX(1, m->mh))));
+        ww = MAX(1, MIN(pw - wx, (int)((long)c->w * pw / MAX(1, m->mw))));
+        wh = MAX(1, MIN(previewh - wy, (int)((long)c->h * previewh / MAX(1, m->mh))));
+        drw_setscheme(d, normal); drw_rect(d, px + wx, py + wy, ww, wh, 1, 1);
+        if (havepreview) switcherpreview(d, c->win, px + wx, py + wy, ww, wh);
+        drw_setscheme(d, c == m->sel ? selected : normal);
+        drw_rect(d, px + wx, py + wy, ww, wh, 0, 0);
+      }
+      drw_setscheme(d, normal);
+      for (j = 0; j < nw && listy + (lines + 1) * rh < y + cardh; j++) {
+        c = wintoclient(wins[j]);
+        if (!c || c->mon != m || !ISVISIBLE(c)) continue;
+        snprintf(text, sizeof text, "%s %s", c == m->sel ? ">" : "-", c->name);
+        drw_text(d, x + 1, listy + lines++ * rh, MAX(1, cardw - 2), rh, 8, text, 0);
+      }
+      if (!lines && listy + rh < y + cardh)
+        drw_text(d, x + 1, listy, MAX(1, cardw - 2), rh, 8, "No windows on this tag", 0);
+    }
+    drw_setscheme(d, head);
+    drw_text(d, pad, height - pad - rh, MAX(1, width - 2 * pad), rh, 4,
+             "ALT+` / ARROWS switch   ESC cancel   release ALT select", 0);
+    drw_map(d, popup, 0, 0, width, height);
+    XNextEvent(dpy, &ev);
+    if (havepreview && ev.type == de + XDamageNotify) {
+      XDamageNotifyEvent *event = (XDamageNotifyEvent *)&ev;
+      XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+      XDamageSubtract(dpy, event->damage, None, None);
+      while (XCheckTypedEvent(dpy, de + XDamageNotify, &ev)) {
+        event = (XDamageNotifyEvent *)&ev;
+        XDamageSubtract(dpy, event->damage, None, None);
+      }
+      XSync(dpy, False); XSetErrorHandler(oldhandler);
+    } else if (ev.type == KeyPress) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Escape) done = 1;
+      else if (key == XK_Return || key == XK_KP_Enter) done = accept = 1;
+      else if (key == XK_grave || key == XK_Tab || key == XK_Right || key == XK_Left) {
+        int reverse = key == XK_Left || (ev.xkey.state & ShiftMask);
+        active = (active + (reverse ? nm - 1 : 1)) % nm;
+      }
+    } else if (ev.type == KeyRelease) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Alt_L || key == XK_Alt_R) done = accept = 1;
+    } else if (ev.type == ConfigureNotify && ev.xconfigure.window == root) {
+      /* Monitor pointers can change during a hotplug. Close before dispatch. */
+      done = 1;
+      configurenotify(&ev);
+    } else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify &&
+               ev.type != FocusIn && handler[ev.type]) handler[ev.type](&ev);
+  }
+  XDestroyWindow(dpy, popup); XUngrabKeyboard(dpy, CurrentTime);
+  if (havepreview) {
+    XSync(dpy, False); oldhandler = XSetErrorHandler(xerrordummy);
+    for (i = 0; i < nw; i++) {
+      if (damage[i]) XDamageDestroy(dpy, damage[i]);
+      XCompositeUnredirectWindow(dpy, wins[i], CompositeRedirectAutomatic);
+    }
+    XSync(dpy, False); XSetErrorHandler(oldhandler);
+    while (XCheckTypedEvent(dpy, de + XDamageNotify, &ev)) { }
+  }
+  drw_scm_free(d, head, 3); drw_scm_free(d, normal, 3);
+  drw_scm_free(d, selected, 3); drw_scm_free(d, blue, 3); drw_free(d);
+  if (accept && screens[active] != selmon) {
+    unfocus(selmon->sel, 0); selmon = screens[active]; focus(NULL); warp(selmon->sel);
+  }
+  free(screens); free(wins); free(damage);
 }
 
 void applyrules(Client *c) {
