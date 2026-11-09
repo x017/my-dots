@@ -150,6 +150,8 @@ struct Monitor {
   float mfact;
   int nmaster;
   int num;
+  Window externalbar;
+  int externalbarheight;
   int mx, my, mw, mh; /* screen size */
   int wx, wy, ww, wh; /* window area  */
   int gappx;          /* gaps between windows */
@@ -287,8 +289,6 @@ static int bh;     /* bar height */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
 static Atom xkbrules, barstateatom, barcommandatom;
-static Window externalbar = None;
-static int externalbarheight;
 static void publishbar(void);
 static void (*handler[LASTEvent])(XEvent *) = {
     [ButtonPress] = buttonpress,
@@ -316,21 +316,27 @@ static Window root, wmcheckwin;
 /* configuration, allows nested code to access above variables */
 #include "config.h"
 
-/* Minimal X11 IPC for the independent bar. State is for the first monitor;
- * the bar owns its own windows, renderer, tray and service monitoring. */
+/* Versioned bar IPC: header plus per-monitor id, tag state and geometry. */
 static void publishbar(void) {
-  unsigned long data[9] = {1, 0, 0, 0, 0, 0, 0, 0, LENGTH(tags)};
+  unsigned long data[3 + 16 * 8] = {2, 0, LENGTH(tags)};
+  Monitor *m;
   Client *c;
-  if (!mons || !barstateatom) return;
-  data[1] = mons->tagset[mons->seltags];
-  for (c = mons->clients; c; c = c->next) {
-    data[2] |= c->tags & TAGMASK;
-    if (c->isurgent) data[3] |= c->tags & TAGMASK;
+  int n = 0;
+  if (!barstateatom) return;
+  for (m = mons; m && n < 16; m = m->next, n++) {
+    int at = 3 + n * 8;
+    data[at] = m->num; data[at + 1] = m->tagset[m->seltags];
+    for (c = m->clients; c; c = c->next) {
+      data[at + 2] |= c->tags & TAGMASK;
+      if (c->isurgent) data[at + 3] |= c->tags & TAGMASK;
+    }
+    data[at + 4] = (unsigned long)m->mx; data[at + 5] = (unsigned long)m->my;
+    data[at + 6] = m->mw; data[at + 7] = m->mh;
   }
-  data[4] = (unsigned long)mons->mx; data[5] = (unsigned long)mons->my;
-  data[6] = mons->mw; data[7] = mons->mh;
-  XChangeProperty(dpy, root, barstateatom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 9);
+  data[1] = n;
+  XChangeProperty(dpy, root, barstateatom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 3 + n * 8);
 }
+
 
 
 /* compile-time check if all tags fit into an unsigned int bit array. */
@@ -1576,19 +1582,22 @@ void clientmessage(XEvent *e) {
   XClientMessageEvent *cme = &e->xclient;
   Client *c = wintoclient(cme->window);
   if (cme->window == root && cme->message_type == barcommandatom && cme->format == 32) {
-    if (cme->data.l[0] == 1 && mons) {
+    Monitor *m;
+    for (m = mons; m && m->num != cme->data.l[2]; m = m->next) ;
+    if (cme->data.l[0] == 1 && m) {
       unsigned int mask = (unsigned int)cme->data.l[1] & TAGMASK;
       if (mask) {
         Arg arg = { .ui = mask };
-        if (selmon != mons) { unfocus(selmon->sel, 1); selmon = mons; focus(NULL); }
+        if (selmon != m) { unfocus(selmon->sel, 1); selmon = m; focus(NULL); }
         view(&arg);
       }
-    } else if (cme->data.l[0] == 2 && mons) {
+    } else if (cme->data.l[0] == 2 && m) {
       XWindowAttributes a;
       Window w = (Window)cme->data.l[1];
-      if (w && XGetWindowAttributes(dpy, w, &a) && a.override_redirect && a.height > 0 && a.height <= 128) {
-        externalbar = w; externalbarheight = a.height;
-        updateworkarea(mons); arrange(mons); publishbar();
+      if (w && XGetWindowAttributes(dpy, w, &a) && a.override_redirect && a.height > 0 && a.height <= 128 &&
+          (m->externalbar != w || m->externalbarheight != a.height)) {
+        m->externalbar = w; m->externalbarheight = a.height;
+        updateworkarea(m); arrange(m); publishbar();
       }
     }
     return;
@@ -1719,9 +1728,14 @@ void destroynotify(XEvent *e) {
   Client *c;
   XDestroyWindowEvent *ev = &e->xdestroywindow;
 
-  if (ev->window == externalbar) {
-    externalbar = None; externalbarheight = 0;
-    if (mons) { updateworkarea(mons); arrange(mons); publishbar(); }
+  {
+    Monitor *m;
+    for (m = mons; m; m = m->next)
+      if (ev->window == m->externalbar) {
+        m->externalbar = None; m->externalbarheight = 0;
+        updateworkarea(m); arrange(m); publishbar();
+        break;
+      }
   }
   if ((c = wintoclient(ev->window)))
     unmanage(c, 1);
@@ -3053,9 +3067,9 @@ void unmapnotify(XEvent *e) {
 void updateworkarea(Monitor *m) {
   m->wy = m->my;
   m->wh = m->mh;
-  if (m == mons && externalbar && externalbarheight > 0 && externalbarheight < m->mh) {
-    m->wy += externalbarheight;
-    m->wh -= externalbarheight;
+  if (m->externalbar && m->externalbarheight > 0 && m->externalbarheight < m->mh) {
+    m->wy += m->externalbarheight;
+    m->wh -= m->externalbarheight;
   }
 }
 

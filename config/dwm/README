@@ -199,7 +199,7 @@ Standalone CUI bar
 ------------------
 The old dwm bar and tray have been removed. The replacement is a separate,
 lightweight CUI/X11 application under ../cui-bar. It has its own XEmbed tray,
-and communicates with dwm only for first-monitor workspace state, workspace
+and communicates with dwm only for per-monitor workspace state, workspace
 clicks, and reserving screen space. It does not depend on the dashboard
 build. When `cui-bar` is on dwm's PATH, dwm starts it automatically if no
 other X11 tray is running; existing autostart files are left unchanged. Set

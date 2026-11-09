@@ -3,7 +3,9 @@ Standalone CUI bar
 This is a separate X11/CUI program, inspired by the Waybar configuration in
 ../waybar. The old dwm bar and its tray are removed. The bar uses a small X11
 property/message protocol with this dwm build to display and switch workspaces
-on the first monitor and reserve space. It does not require the CUI dashboard.
+and reserve space on each monitor (up to 16). The tray appears on the first
+monitor because an XEmbed icon can only be hosted by one tray at a time. The
+network, Bluetooth and audio control center is built into the bar process.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
 headers/libraries required):
@@ -12,7 +14,9 @@ headers/libraries required):
     cmake --build config/cui-bar/build
     cmake --install config/cui-bar/build
 
-Then rebuild/install dwm and restart it. If you want the CUI dashboard too,
+Then rebuild/install dwm and restart it. When upgrading from an older version,
+stop the old bar first (`pkill -x cui-bar`) so it doesn't keep the old IPC
+protocol or retain the tray. If you want the separate CUI dashboard too,
 build dwm with CUI=1 as described in ../dwm/README; otherwise use the normal
 make build. Ensure ~/.local/bin is in the PATH of the dwm session, not just
 an interactive terminal. dwm automatically launches `cui-bar` when installed,
@@ -27,18 +31,23 @@ Service commands run in a separate worker, at most once every 10 seconds (and
 after audio actions), without blocking dwm or the bar's X event loop. CPU,
 memory and clock refresh every five seconds. A single-threaded software CUI
 renderer draws only after changes or refreshes; no continuously running GPU
-render loop is required. Narrow screens hide the left stats when space is
-needed. The first monitor is used; this version does not create multiple bars.
+render loop is required. The open control popup refreshes four times per
+second for interaction and animations. Narrow screens hide the left stats
+when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
-Click a workspace to view it. Click volume for pavucontrol, right-click to
-mute, or scroll to adjust by 2%. Click network for nm-connection-editor,
-Bluetooth for blueman-manager, and lock for mel. Right-click network or
-Bluetooth to toggle the corresponding radio. These programs and the
-NetworkManager, BlueZ and PulseAudio/PipeWire services are optional but needed
-for their respective controls. Connection and device management is handled by
-those settings tools, not built into the bar. Dashboard shortcuts remain
-available separately. The built-in mono font can be overridden by setting
-CUI_BAR_FONT to a TrueType/OpenType font file before launching the bar.
+Click a workspace to view it on that monitor. Click volume, network or
+Bluetooth to open the bar's integrated CUI control popup on that monitor.
+The popup can list, scan, connect and disconnect Wi-Fi and Bluetooth devices,
+control radios, and adjust/mute audio; Escape or Close dismisses it. Right-click
+volume to mute, scroll it to adjust by 2%, or right-click network/Bluetooth to
+toggle the radio directly. Lock launches mel. NetworkManager/nmcli, BlueZ/
+bluetoothctl and PulseAudio or PipeWire/pactl are needed for their respective
+controls. Passwords are sent via a private pipe rather than command arguments;
+WPA enterprise and hidden networks need Network settings. Bluetooth pairing
+that requires confirmation or PIN entry needs a separate pairing agent.
+Optional advanced settings buttons launch nm-connection-editor,
+blueman-manager, and pavucontrol. Separate dwm dashboard shortcuts still work.
+Set CUI_BAR_FONT to a font file to override the built-in mono bar font.
 
 The tray implements legacy XEmbed icons, up to eight visible at once, fewer on narrow screens; it does
 not implement D-Bus StatusNotifierItem/AppIndicator icons. Some applications

@@ -1,8 +1,9 @@
-/* Standalone CUI/Xlib bar and XEmbed system tray. No dwm IPC or dependencies. */
+/* Standalone CUI/Xlib bar, popup and XEmbed tray; small X11 IPC with dwm. */
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/XKBlib.h>
+#include <X11/keysym.h>
 #include <cui/cui_icons.h>
 #include <fcntl.h>
 #include <glob.h>
@@ -21,7 +22,6 @@
 #include <sys/select.h>
 #include <time.h>
 #include <unistd.h>
-#define DASHBOARD_NO_SNAPSHOT
 #include "../dwm/dashboard_backend.h"
 
 #define HEIGHT 36
@@ -37,6 +37,7 @@
 #define XEMBED_MAPPED 1
 
 typedef struct { Window win; int mapped; } TrayIcon;
+typedef struct { Window win; int id, x, y, width, height; unsigned long active, occupied, urgent; } Panel;
 typedef struct {
     Display *dpy;
     int screen, width;
@@ -46,6 +47,7 @@ typedef struct {
     Atom state_atom, command_atom, wm_atom, xkb_rules;
     unsigned long active, occupied, urgent;
     int mx, my, mw, tag_count, worker_fd, worker_busy, worker_completed, worker_waiting;
+    Panel panels[16]; int panel_count, current;
     Snapshot snapshot;
     int ethernet, network_available, cpu, memory, temperature, battery;
     unsigned long long cpu_total, cpu_idle;
@@ -54,6 +56,8 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
+    Window popup; int popup_width, popup_height, popup_page, popup_dirty;
+    cui_ctx *popup_ui;
 } Bar;
 static volatile sig_atomic_t running = 1;
 static void terminate(int sig) { (void)sig; running = 0; }
@@ -180,52 +184,19 @@ static int write_all(int fd, const void *data, size_t length) {
 static void worker(int fd) {
     WorkerFrame frame = {0}; Request req; char output[MAX_OUTPUT];
     char *devices[] = {"nmcli", "-t", "-f", "TYPE,STATE", "device", "status", NULL};
-    char *wifi[] = {"nmcli", "-t", "-f", "IN-USE,SIGNAL", "device", "wifi", "list", "--rescan", "no", NULL};
-    char *wifi_radio[] = {"nmcli", "-t", "radio", "wifi", NULL};
-    char *bt[] = {"bluetoothctl", "show", NULL};
-    char *bt_connected[] = {"bluetoothctl", "devices", "Connected", NULL};
-    char *volume[] = {"pactl", "get-sink-volume", "@DEFAULT_SINK@", NULL};
-    char *mute[] = {"pactl", "get-sink-mute", "@DEFAULT_SINK@", NULL};
+    char message[256] = "";
     struct pollfd p = { .fd = fd, .events = POLLIN };
     signal(SIGCHLD, SIG_DFL); signal(SIGPIPE, SIG_IGN);
     setenv("LC_ALL", "C", 1);
     for (;;) {
-        int ready; char *percent;
-        memset(&frame.snapshot, 0, sizeof frame.snapshot);
+        int ready;
+        read_snapshot(&frame.snapshot);
+        copystr(frame.snapshot.message, sizeof frame.snapshot.message, message);
         frame.ethernet = frame.network_available = 0;
         if (run_command(devices, NULL, output, sizeof output, 2500) == 0) {
             frame.network_available = 1;
             frame.ethernet = strstr(output, "ethernet:connected") != NULL;
-            if (strstr(output, "wifi:connected")) copystr(frame.snapshot.wifi_device, sizeof frame.snapshot.wifi_device, "connected");
         }
-        if (run_command(wifi_radio, NULL, output, sizeof output, 2500) == 0) {
-            frame.snapshot.wifi_available = 1;
-            frame.snapshot.wifi_enabled = !strncmp(output, "enabled", 7);
-        }
-        if (frame.snapshot.wifi_device[0] && run_command(wifi, NULL, output, sizeof output, 2500) == 0) {
-            char *line, *save, *parts[2];
-            for (line = strtok_r(output, "\n", &save); line; line = strtok_r(NULL, "\n", &save))
-                if (fields(line, parts, 2) == 2 && parts[0][0] == '*') {
-                    frame.snapshot.networks_count = 1; frame.snapshot.networks[0].active = 1;
-                    frame.snapshot.networks[0].signal = atoi(parts[1]); break;
-                }
-        }
-        if (run_command(bt, NULL, output, sizeof output, 2500) == 0 && strstr(output, "Powered:")) {
-            frame.snapshot.bluetooth_available = 1;
-            frame.snapshot.bluetooth_enabled = strstr(output, "Powered: yes") != NULL;
-            if (frame.snapshot.bluetooth_enabled && run_command(bt_connected, NULL, output, sizeof output, 2500) == 0) {
-                char *line, *save;
-                for (line = strtok_r(output, "\n", &save); line && frame.snapshot.devices_count < MAX_ITEMS; line = strtok_r(NULL, "\n", &save))
-                    if (!strncmp(line, "Device ", 7)) frame.snapshot.devices[frame.snapshot.devices_count++].connected = 1;
-            }
-        }
-        if (run_command(volume, NULL, output, sizeof output, 2500) == 0 && (percent = strchr(output, '%'))) {
-            char *begin = percent;
-            while (begin > output && isdigit((unsigned char)begin[-1])) begin--;
-            if (begin != percent) { frame.snapshot.audio_available = 1; frame.snapshot.volume = atoi(begin); }
-        }
-        if (frame.snapshot.audio_available && run_command(mute, NULL, output, sizeof output, 2500) == 0)
-            frame.snapshot.muted = strstr(output, "yes") != NULL;
         if (!write_all(fd, &frame, sizeof frame)) break;
         ready = poll(&p, 1, 10000);
         if (ready < 0 && errno == EINTR) continue;
@@ -238,7 +209,11 @@ static void worker(int fd) {
                 if (n <= 0) goto done;
                 used += (size_t)n;
             }
-            if (execute(&req)) fprintf(stderr, "cui-bar: requested action failed\n");
+            if (execute(&req)) {
+                if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
+                else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
+                else copystr(message, sizeof message, "Action failed. Check device and permissions.");
+            } else copystr(message, sizeof message, "Done.");
             wipe(&req, sizeof req);
             frame.completed++;
         }
@@ -265,29 +240,61 @@ static void audio_action(Bar *b, Action type, int value) {
         b->worker_busy = 1; b->worker_waiting = b->worker_completed + 1;
     } else fprintf(stderr, "cui-bar: could not queue action\n");
 }
-static void send_command(Bar *b, long command, long value) {
+static void send_command(Bar *b, long command, long value, int monitor) {
     XEvent e; memset(&e, 0, sizeof e);
     e.xclient.type = ClientMessage; e.xclient.window = b->root;
     e.xclient.message_type = b->command_atom; e.xclient.format = 32;
-    e.xclient.data.l[0] = command; e.xclient.data.l[1] = value;
+    e.xclient.data.l[0] = command; e.xclient.data.l[1] = value; e.xclient.data.l[2] = monitor;
     XSendEvent(b->dpy, b->root, False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
     XFlush(b->dpy);
 }
+static void use_panel(Bar *b, int i) {
+    Panel *p = &b->panels[i];
+    b->current = i; b->win = p->win; b->width = p->width;
+    b->mx = p->x; b->my = p->y; b->mw = p->width;
+    b->active = p->active; b->occupied = p->occupied; b->urgent = p->urgent;
+}
+static int panel_index(Bar *b, Window w) {
+    int i; for (i = 0; i < b->panel_count; i++) if (b->panels[i].win == w) return i;
+    return -1;
+}
 static void read_workspace(Bar *b) {
     Atom type; int format; unsigned long n, left; unsigned char *data = NULL;
-    if (XGetWindowProperty(b->dpy, b->root, b->state_atom, 0, 9, False, XA_CARDINAL,
+    if (XGetWindowProperty(b->dpy, b->root, b->state_atom, 0, 3 + 16 * 8, False, XA_CARDINAL,
                            &type, &format, &n, &left, &data) == Success && data &&
-        type == XA_CARDINAL && format == 32 && n >= 9 && ((unsigned long *)data)[0] == 1) {
+        type == XA_CARDINAL && format == 32 && n >= 3 && ((unsigned long *)data)[0] == 2) {
         unsigned long *v = (unsigned long *)data;
-        b->active = v[1]; b->occupied = v[2]; b->urgent = v[3];
-        b->mx = (int32_t)v[4]; b->my = (int32_t)v[5]; b->mw = (int)v[6];
-        b->tag_count = v[8] > 9 ? 9 : (int)v[8];
-        if (b->mw > 0 && b->mw <= 32767 && b->mw != b->width) b->width = b->mw;
-        XMoveResizeWindow(b->dpy, b->win, b->mx, b->my, b->width, HEIGHT);
-        position_icons(b);
+        int count = (int)v[1], i;
+        if (count > 16) count = 16;
+        if (count < 1 || n < (unsigned long)(3 + count * 8)) goto done;
+        b->tag_count = v[2] > 9 ? 9 : (int)v[2];
+        for (i = 0; i < count; i++) {
+            int at = 3 + i * 8, old_id = b->panels[i].id;
+            Panel *p = &b->panels[i];
+            int is_new = i >= b->panel_count;
+            if (is_new) {
+                XSetWindowAttributes attr;
+                attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
+                attr.event_mask = ExposureMask | ButtonPressMask;
+                p->win = XCreateWindow(b->dpy, b->root, 0, 0, 1, HEIGHT, 0, DefaultDepth(b->dpy, b->screen),
+                                       InputOutput, DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
+            }
+            p->id = (int)v[at]; p->active = v[at + 1]; p->occupied = v[at + 2]; p->urgent = v[at + 3];
+            p->x = (int32_t)v[at + 4]; p->y = (int32_t)v[at + 5];
+            p->width = (int)v[at + 6]; p->height = (int)v[at + 7];
+            if (p->width <= 0 || p->width > 32767) p->width = 1;
+            XMoveResizeWindow(b->dpy, p->win, p->x, p->y, p->width, HEIGHT);
+            if (is_new) XMapRaised(b->dpy, p->win);
+            if (is_new || old_id != p->id) send_command(b, 2, (long)p->win, p->id);
+        }
+        for (i = count; i < b->panel_count; i++) XDestroyWindow(b->dpy, b->panels[i].win);
+        b->panel_count = count;
+        use_panel(b, 0); position_icons(b);
     }
+done:
     if (data) XFree(data);
 }
+
 static int read_int(const char *path) {
     FILE *f = fopen(path, "r"); int n = -1;
     if (f) { if (fscanf(f, "%d", &n) != 1) n = -1; fclose(f); }
@@ -356,6 +363,140 @@ static void read_stats(Bar *b) {
     }
 }
 
+/* The control center belongs to the bar process: one popup, one event loop,
+ * and the same asynchronous worker used by the status modules. */
+static Bar *popup_bar;
+static bool request_action(Action action, const char *arg, const char *password, int value) {
+    Request req = {0}; bool ok = false; Bar *b = popup_bar;
+    if (!b || b->worker_fd < 0 || b->worker_busy) return false;
+    req.type = action; req.value = value;
+    copystr(req.arg, sizeof req.arg, arg); copystr(req.password, sizeof req.password, password);
+    if (send(b->worker_fd, &req, sizeof req, MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof req) {
+        b->worker_busy = 1; b->worker_waiting = b->worker_completed + 1; ok = true;
+    }
+    if (!ok) copystr(b->snapshot.message, sizeof b->snapshot.message, "Could not send action to the service worker.");
+    wipe(&req, sizeof req); return ok;
+}
+static void open_settings(const char *program) { launch(program); }
+#include "popup_content.h"
+static UIState popup_state;
+static void close_popup(Bar *b) {
+    if (!b->popup) return;
+    XUngrabKeyboard(b->dpy, CurrentTime);
+    XDestroyWindow(b->dpy, b->popup); b->popup = None;
+    if (b->popup_ui) { cui_destroy(b->popup_ui); b->popup_ui = NULL; }
+    wipe(&popup_state, sizeof popup_state); popup_bar = NULL;
+}
+static void open_popup(Bar *b, int page) {
+    XSetWindowAttributes attr; cui_renderer_iface iface;
+    Panel *p = &b->panels[b->current];
+    int width = p->width < 490 ? p->width : 490;
+    int height = p->height - HEIGHT - 12;
+    if (height > 650) height = 650;
+    if (height < 100 || width < 100) return;
+    if (b->popup) { close_popup(b); }
+    attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
+    attr.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+                      LeaveWindowMask | KeyPressMask | KeyReleaseMask;
+    b->popup = XCreateWindow(b->dpy, b->root, p->x + p->width - width, p->y + HEIGHT,
+                            width, height, 0, DefaultDepth(b->dpy, b->screen), InputOutput,
+                            DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
+    if (!b->popup) return;
+    iface = cui_sw_iface(b->renderer);
+    b->popup_ui = cui_create(&(cui_ctx_desc){ .renderer = iface, .theme = CUI_THEME_DARK });
+    if (!b->popup_ui) { XDestroyWindow(b->dpy, b->popup); b->popup = None; return; }
+    style(b->popup_ui);
+    cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
+    cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
+    b->popup_width = width; b->popup_height = height;
+    memset(&popup_state, 0, sizeof popup_state); popup_state.page = page;
+    popup_bar = b; b->popup_dirty = 1;
+    XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
+    if (XGrabKeyboard(b->dpy, b->popup, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
+        fprintf(stderr, "cui-bar: cannot grab keyboard for control center\n"); close_popup(b); return;
+    }
+    cui_input_focus(b->popup_ui, true);
+}
+static int draw_popup(Bar *b) {
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound"};
+    XImage *image;
+    cui_ctx *ui = b->popup_ui;
+    if (!b->popup || !ui) return 1;
+    image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
+                         ZPixmap, 0, NULL, b->popup_width, b->popup_height, 32, 0);
+    if (!image) return 0;
+    if (image->bits_per_pixel != 32 || image->byte_order != LSBFirst || image->red_mask != 0xff0000 ||
+        image->green_mask != 0xff00 || image->blue_mask != 0xff) { XDestroyImage(image); return 0; }
+    image->data = calloc((size_t)image->bytes_per_line, b->popup_height);
+    if (!image->data) { XDestroyImage(image); return 0; }
+    cui_set_viewport(ui, b->popup_width, b->popup_height, 1);
+    cui_begin_frame(ui, 0.05f);
+    cui_scroll(ui, .id = "controls", .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 12) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
+            cui_column(ui, .width = CUI_FILL, .gap = 3) {
+                cui_text(ui, "QUICK CONTROLS", .font = CUI_FONT_MEDIUM, .size = 16);
+                cui_text(ui, "NETWORK  /  DEVICES  /  AUDIO", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+            if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+        }
+        cui_segmented(ui, "pages", pages, 3, &popup_state.page, .full_width = true);
+        if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
+        else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
+        if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+        else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+        else audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+    }
+    cui_end_frame(ui);
+    cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
+    XPutImage(b->dpy, b->popup, b->gc, image, 0, 0, 0, 0, b->popup_width, b->popup_height);
+    XDestroyImage(image); XFlush(b->dpy);
+    if (b->popup_page == -1) { b->popup_page = 0; close_popup(b); }
+    return 1;
+}
+static cui_key popup_key(KeySym key) {
+    if (key >= XK_a && key <= XK_z) return (cui_key)(CUI_KEY_A + key - XK_a);
+    if (key >= XK_A && key <= XK_Z) return (cui_key)(CUI_KEY_A + key - XK_A);
+    if (key >= XK_0 && key <= XK_9) return (cui_key)(CUI_KEY_0 + key - XK_0);
+    switch (key) {
+    case XK_Tab: return CUI_KEY_TAB; case XK_Return: case XK_KP_Enter: return CUI_KEY_ENTER;
+    case XK_BackSpace: return CUI_KEY_BACKSPACE; case XK_Delete: return CUI_KEY_DELETE;
+    case XK_space: return CUI_KEY_SPACE; case XK_Left: return CUI_KEY_LEFT; case XK_Right: return CUI_KEY_RIGHT;
+    case XK_Up: return CUI_KEY_UP; case XK_Down: return CUI_KEY_DOWN;
+    case XK_Home: return CUI_KEY_HOME; case XK_End: return CUI_KEY_END;
+    case XK_Page_Up: return CUI_KEY_PAGE_UP; case XK_Page_Down: return CUI_KEY_PAGE_DOWN;
+    default: return CUI_KEY_NONE;
+    }
+}
+static void popup_event(Bar *b, XEvent *e) {
+    cui_ctx *ui = b->popup_ui;
+    if (!ui) return;
+    if (e->type == MotionNotify) cui_input_mouse_move(ui, e->xmotion.x, e->xmotion.y);
+    else if (e->type == LeaveNotify) cui_input_mouse_leave(ui);
+    else if (e->type == ButtonPress || e->type == ButtonRelease) {
+        int down = e->type == ButtonPress; unsigned int button = e->xbutton.button;
+        cui_input_mouse_move(ui, e->xbutton.x, e->xbutton.y);
+        if (button == Button1) cui_input_mouse_button(ui, CUI_MOUSE_LEFT, down);
+        else if (button == Button2) cui_input_mouse_button(ui, CUI_MOUSE_MIDDLE, down);
+        else if (button == Button3) cui_input_mouse_button(ui, CUI_MOUSE_RIGHT, down);
+        else if (down && button == Button4) cui_input_scroll(ui, 0, 1);
+        else if (down && button == Button5) cui_input_scroll(ui, 0, -1);
+    } else if (e->type == KeyPress || e->type == KeyRelease) {
+        int down = e->type == KeyPress, mods = 0, n; char text[128]; KeySym sym;
+        n = XLookupString(&e->xkey, text, sizeof text - 1, &sym, NULL);
+        if (down && sym == XK_Escape) { close_popup(b); return; }
+        if (e->xkey.state & ShiftMask) mods |= CUI_MOD_SHIFT;
+        if (e->xkey.state & ControlMask) mods |= CUI_MOD_CTRL;
+        if (e->xkey.state & Mod1Mask) mods |= CUI_MOD_ALT;
+        if (e->xkey.state & Mod4Mask) mods |= CUI_MOD_SUPER;
+        cui_input_key(ui, popup_key(sym), down, mods);
+        if (down && n > 0 && !(mods & (CUI_MOD_CTRL | CUI_MOD_ALT | CUI_MOD_SUPER))) {
+            text[n] = 0; cui_input_text(ui, text);
+        }
+        wipe(text, sizeof text);
+    }
+    if (b->popup && !draw_popup(b)) close_popup(b);
+}
+
 /* Geometry for a centered workspace group and right-aligned modules. */
 typedef struct { int stats, tags, audio, network, bluetooth, tray, clock, language, lock; } Layout;
 static Layout layout(const Bar *b) {
@@ -363,7 +504,8 @@ static Layout layout(const Bar *b) {
     l.lock = right - 32; right = l.lock - 4;
     l.language = right - 38; right = l.language - 4;
     l.clock = right - 70; right = l.clock - 4;
-    l.tray = right - b->tray_width; right = l.tray - (b->tray_width ? 4 : 0);
+    { int tray = b->current == 0 ? b->tray_width : 0;
+      l.tray = right - tray; right = l.tray - (tray ? 4 : 0); }
     l.bluetooth = right - 76; right = l.bluetooth - 4;
     l.network = right - 100; right = l.network - 4;
     l.audio = right - 80;
@@ -372,42 +514,44 @@ static Layout layout(const Bar *b) {
     if (l.tags + b->tag_count * 28 + 8 > l.audio) l.tags = 8;
     return l;
 }
-static void pill(cui_ctx *ui, int x, int w, const char *text, cui_color fg) {
-    cui_rect rect = {(float)x, 5, (float)w, HEIGHT - 10};
-    cui_draw_rect_border(ui, rect, CUI_CORNERS(13), CUI_RGB(0x12141a), CUI_RGB(0x1e2025), 1);
-    cui_push_clip(ui, (cui_rect){rect.x + 5, rect.y, rect.w - 10, rect.h});
+static void metric(cui_ctx *ui, int x, int w, const char *text, cui_color fg) {
+    cui_rect rect = {(float)x, 3, (float)w, HEIGHT - 6};
+    cui_draw_rect(ui, (cui_rect){(float)x, 10, 1, 16}, CUI_CORNERS(0), CUI_RGB(0x303946));
+    cui_push_clip(ui, (cui_rect){rect.x + 6, rect.y, rect.w - 8, rect.h});
     cui_draw_text(ui, CUI_FONT_MONO, 12, (cui_vec2){rect.x + 9, 10}, fg, text, -1);
     cui_pop_clip(ui);
 }
+
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[180];
     cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x64778d);
     (void)r;
     cui_draw_rect(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(0), CUI_RGB(0x090b0d));
-    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 2, (float)b->width, 2}, CUI_CORNERS(0), CUI_RGB(0x507396));
+    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x2d3948));
     if (l.stats) {
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        pill(ui, 8, 66, text, muted);
+        metric(ui, 8, 66, text, muted);
         if (b->cpu >= 0) snprintf(text, sizeof text, "CPU %d%%", b->cpu); else strcpy(text, "CPU --");
-        pill(ui, 78, 66, text, fg);
+        metric(ui, 78, 66, text, fg);
         if (b->memory >= 0) snprintf(text, sizeof text, "RAM %d%%", b->memory); else strcpy(text, "RAM --");
-        pill(ui, 148, 66, text, fg);
+        metric(ui, 148, 66, text, fg);
         if (b->battery >= 0) snprintf(text, sizeof text, "BAT %d%%", b->battery); else strcpy(text, "BAT --");
-        pill(ui, 218, 66, text, b->battery >= 0 && b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg);
+        metric(ui, 218, 66, text, b->battery >= 0 && b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg);
     }
     if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.audio) {
-        cui_draw_rect_border(ui, (cui_rect){l.tags - 4, 5, b->tag_count * 28 + 8, HEIGHT - 10}, CUI_CORNERS(13), CUI_RGB(0x12141a), CUI_RGB(0x1e2025), 1);
+        cui_draw_rect(ui, (cui_rect){l.tags - 6, 4, b->tag_count * 28 + 12, HEIGHT - 8}, CUI_CORNERS(4), CUI_RGB(0x121820));
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 1, 7, 26, HEIGHT - 14}, CUI_CORNERS(11), CUI_RGB(0x8a949e));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 7, HEIGHT - 7, 14, 2}, CUI_CORNERS(1), CUI_RGB(0xf2d49e));
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, HEIGHT - 6}, 1, CUI_RGB(0x7fa8c9));
             snprintf(text, sizeof text, "%d", i + 1);
             cui_draw_text(ui, CUI_FONT_MONO, 12, (cui_vec2){x + 10, 10},
-                          b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? CUI_RGB(0x090b0d) : b->occupied & mask ? fg : muted, text, -1);
+                          b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? CUI_RGB(0xf2d49e) : b->occupied & mask ? fg : muted, text, -1);
         }
     }
     if (b->snapshot.audio_available) snprintf(text, sizeof text, b->snapshot.muted ? "MUTED" : "VOL %d%%", b->snapshot.volume);
     else strcpy(text, "VOL --");
-    pill(ui, l.audio, 80, text, b->snapshot.muted ? muted : fg);
+    metric(ui, l.audio, 80, text, b->snapshot.muted ? muted : fg);
     if (!b->network_available) strcpy(text, "NET --");
     else if (b->ethernet) strcpy(text, "ETHERNET");
     else if (b->snapshot.wifi_device[0]) {
@@ -416,7 +560,7 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
         if (strength >= 0) snprintf(text, sizeof text, "WIFI %d%%", strength); else strcpy(text, "WIFI ON");
     } else if (b->snapshot.wifi_available && !b->snapshot.wifi_enabled) strcpy(text, "WIFI OFF");
     else strcpy(text, "OFFLINE");
-    pill(ui, l.network, 100, text, !b->network_available ? muted : !b->ethernet && !b->snapshot.wifi_device[0] ? CUI_RGB(0xb86a6a) : fg);
+    metric(ui, l.network, 100, text, !b->network_available ? muted : !b->ethernet && !b->snapshot.wifi_device[0] ? CUI_RGB(0xb86a6a) : fg);
     if (!b->snapshot.bluetooth_available) strcpy(text, "BT --");
     else if (!b->snapshot.bluetooth_enabled) strcpy(text, "BT OFF");
     else {
@@ -424,10 +568,10 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
         for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
         if (connected) snprintf(text, sizeof text, "BT %d", connected); else strcpy(text, "BT ON");
     }
-    pill(ui, l.bluetooth, 76, text, b->snapshot.bluetooth_enabled ? fg : muted);
-    if (b->tray_width) cui_draw_rect_border(ui, (cui_rect){l.tray, 5, b->tray_width, HEIGHT - 10}, CUI_CORNERS(13), CUI_RGB(0x12141a), CUI_RGB(0x1e2025), 1);
-    pill(ui, l.clock, 70, b->clock, fg); pill(ui, l.language, 38, b->language, fg);
-    pill(ui, l.lock, 32, "L", muted);
+    metric(ui, l.bluetooth, 76, text, b->snapshot.bluetooth_enabled ? fg : muted);
+    if (b->current == 0 && b->tray_width) cui_draw_rect(ui, (cui_rect){l.tray, 10, 1, 16}, CUI_CORNERS(0), CUI_RGB(0x303946));
+    metric(ui, l.clock, 70, b->clock, fg); metric(ui, l.language, 38, b->language, fg);
+    metric(ui, l.lock, 32, "L", muted);
 }
 static int draw(Bar *b) {
     XImage *image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
@@ -448,9 +592,9 @@ static int draw(Bar *b) {
 static void clicked(Bar *b, XButtonEvent *e) {
     Layout l = layout(b); int x = e->x;
     if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.audio && x >= l.tags && x < l.tags + b->tag_count * 28 && e->button == Button1)
-        send_command(b, 1, 1l << ((x - l.tags) / 28));
+        send_command(b, 1, 1l << ((x - l.tags) / 28), b->panels[b->current].id);
     else if (x >= l.audio && x < l.audio + 80) {
-        if (e->button == Button1) launch("pavucontrol");
+        if (e->button == Button1) open_popup(b, 2);
         else if (e->button == Button3 && b->snapshot.audio_available) audio_action(b, ACT_AUDIO_MUTE, 0);
         else if ((e->button == Button4 || e->button == Button5) && b->snapshot.audio_available) {
             int value = b->snapshot.volume + (e->button == Button4 ? 2 : -2);
@@ -459,11 +603,11 @@ static void clicked(Bar *b, XButtonEvent *e) {
             audio_action(b, ACT_AUDIO_VOLUME, value);
         }
     } else if (x >= l.network && x < l.network + 100) {
-        if (e->button == Button1) launch("nm-connection-editor");
+        if (e->button == Button1) open_popup(b, 0);
         else if (e->button == Button3 && b->snapshot.wifi_available)
             audio_action(b, b->snapshot.wifi_enabled ? ACT_WIFI_OFF : ACT_WIFI_ON, 0);
     } else if (x >= l.bluetooth && x < l.bluetooth + 76) {
-        if (e->button == Button1) launch("blueman-manager");
+        if (e->button == Button1) open_popup(b, 1);
         else if (e->button == Button3 && b->snapshot.bluetooth_available)
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
     }
@@ -491,6 +635,8 @@ int main(void) {
     attr.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask | SubstructureRedirectMask;
     b.win = XCreateWindow(b.dpy, b.root, 0, 0, b.width, HEIGHT, 0, DefaultDepth(b.dpy, b.screen),
                           InputOutput, DefaultVisual(b.dpy, b.screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
+    b.panels[0].win = b.win; b.panels[0].id = 0; b.panels[0].width = b.width;
+    b.panels[0].height = DisplayHeight(b.dpy, b.screen); b.panel_count = 1;
     b.gc = XCreateGC(b.dpy, b.win, 0, NULL);
     b.renderer = cui_sw_create();
     if (!b.renderer) { fprintf(stderr, "cui-bar: renderer initialization failed\n"); result = 1; goto cleanup; }
@@ -509,20 +655,29 @@ int main(void) {
     XSelectInput(b.dpy, b.root, PropertyChangeMask | StructureNotifyMask);
     read_workspace(&b);
     XMapRaised(b.dpy, b.win);
-    send_command(&b, 2, (long)b.win);
+    send_command(&b, 2, (long)b.win, b.panels[0].id);
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
         struct timeval timeout; time_t now = time(NULL);
         if (now >= next_stats) { read_stats(&b); next_stats = now + 5; dirty = 1; }
         if (dirty) {
-            if (!draw(&b)) { fprintf(stderr, "cui-bar: unsupported X11 visual or allocation failure\n"); result = 1; break; }
+            for (i = 0; i < b.panel_count; i++) {
+                use_panel(&b, i);
+                if (!draw(&b)) { fprintf(stderr, "cui-bar: unsupported X11 visual or allocation failure\n"); result = 1; running = 0; break; }
+            }
+            use_panel(&b, 0);
+            if (!running) break;
             dirty = 0;
+            if (b.popup) b.popup_dirty = 1;
         }
+        if (b.popup && b.popup_dirty) { if (!draw_popup(&b)) close_popup(&b); b.popup_dirty = 0; }
         FD_ZERO(&fds); FD_SET(xfd, &fds);
         if (b.worker_fd >= 0) { FD_SET(b.worker_fd, &fds); if (b.worker_fd > maxfd) maxfd = b.worker_fd; }
         timeout.tv_sec = next_stats > now ? next_stats - now : 0; timeout.tv_usec = 0;
+        if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
         ready = XPending(b.dpy) ? 0 : select(maxfd + 1, &fds, NULL, NULL, &timeout);
+        if (ready == 0 && b.popup) b.popup_dirty = 1;
         if (ready < 0 && errno != EINTR) { fprintf(stderr, "cui-bar: select: %s\n", strerror(errno)); result = 1; break; }
         if (ready > 0 && b.worker_fd >= 0 && FD_ISSET(b.worker_fd, &fds)) {
             ssize_t n = read(b.worker_fd, (char *)&incoming + received, sizeof incoming - received);
@@ -541,8 +696,11 @@ int main(void) {
         while (XPending(b.dpy)) {
             XEvent e; int index;
             XNextEvent(b.dpy, &e);
-            if (e.type == Expose && e.xexpose.window == b.win && e.xexpose.count == 0) dirty = 1;
-            else if (e.type == ButtonPress && e.xbutton.window == b.win) clicked(&b, &e.xbutton);
+            if (b.popup && e.xany.window == b.popup) { popup_event(&b, &e); continue; }
+            if (e.type == Expose && panel_index(&b, e.xexpose.window) >= 0 && e.xexpose.count == 0) dirty = 1;
+            else if (e.type == ButtonPress && (index = panel_index(&b, e.xbutton.window)) >= 0) {
+                use_panel(&b, index); clicked(&b, &e.xbutton); use_panel(&b, 0);
+            }
             else if (e.type == ClientMessage && e.xclient.window == b.win && e.xclient.message_type == b.opcode && e.xclient.data.l[1] == 0) {
                 dock(&b, (Window)e.xclient.data.l[2]); dirty = 1;
             } else if (e.type == SelectionClear && e.xselectionclear.selection == b.selection) {
@@ -552,7 +710,7 @@ int main(void) {
             } else if (e.type == PropertyNotify && e.xproperty.window == b.root && e.xproperty.atom == b.state_atom) {
                 read_workspace(&b); dirty = 1;
             } else if (e.type == PropertyNotify && e.xproperty.window == b.root && e.xproperty.atom == b.wm_atom) {
-                send_command(&b, 2, (long)b.win);
+                for (i = 0; i < b.panel_count; i++) send_command(&b, 2, (long)b.panels[i].win, b.panels[i].id);
             } else if (e.type == PropertyNotify && (index = icon_index(&b, e.xproperty.window)) >= 0 && e.xproperty.atom == b.xembed_info) {
                 int mapped = icon_mapped(&b, b.icons[index].win);
                 if (mapped != b.icons[index].mapped) { b.icons[index].mapped = mapped; position_icons(&b); dirty = 1; }
@@ -564,6 +722,7 @@ int main(void) {
         }
     }
 cleanup:
+    close_popup(&b);
     if (b.worker_fd >= 0) close(b.worker_fd);
     if (b.selection && XGetSelectionOwner(b.dpy, b.selection) == b.win) XSetSelectionOwner(b.dpy, b.selection, None, CurrentTime);
     for (i = 0; i < b.count; i++) {
@@ -573,7 +732,7 @@ cleanup:
     if (b.ui) cui_destroy(b.ui);
     if (b.renderer) cui_sw_destroy(b.renderer);
     if (b.gc) XFreeGC(b.dpy, b.gc);
-    if (b.win) XDestroyWindow(b.dpy, b.win);
+    for (i = 0; i < b.panel_count; i++) if (b.panels[i].win) XDestroyWindow(b.dpy, b.panels[i].win);
     XCloseDisplay(b.dpy);
     return result;
 }
