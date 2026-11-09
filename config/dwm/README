@@ -73,3 +73,32 @@ the selected monitor and move the pointer there; Escape cancels. For more
 than three monitors, the cards page automatically as you cycle. The previews
 use the same X extensions and fallback as the window switcher. Existing
 Alt+comma and Alt+period monitor focus shortcuts still work.
+
+Waybar-inspired dwm bar
+-----------------------
+The old dwm status bar is replaced with a built-in, top-positioned bar. It
+uses the Waybar Editor Dark palette, JetBrainsMono Nerd Font, rounded pills,
+centered clickable tags, occupied/urgent indicators, and a blue bottom line.
+The bar is enabled by default on every monitor; Alt+B toggles it per monitor.
+The XEmbed system tray follows the focused monitor. Tags keep their usual
+left/right click and Alt+click actions.
+
+The bar starts ~/.config/dwm/bar-status.sh automatically (or
+$XDG_CONFIG_HOME/dwm/bar-status.sh if XDG_CONFIG_HOME is set). Copy this file
+along with the rest of config/dwm, then rebuild and restart dwm. The helper
+updates CPU usage, default audio sink, network and local date/time every two
+seconds; it exits after dwm exits. It uses the X root window name, replacing
+external xsetroot status writers and the old status2d text format. If the
+helper or a dependency is missing, unavailable readings show placeholders.
+
+- Audio: left or right click toggles mute, scroll changes volume by 2%, and
+  middle click opens pavucontrol. Requires pactl and a PulseAudio-compatible
+  server (PulseAudio or PipeWire's pulse server); pavucontrol is optional.
+- Network: left or right click opens nm-connection-editor. NetworkManager's
+  nmcli provides the connection type; without it, a basic link-state fallback
+  is used. The editor is optional.
+- CPU: left click opens top in Ghostty. Clock: left click opens gsimplecal.
+  Ghostty and gsimplecal are optional; date and time are always displayed.
+- xsetroot, a POSIX shell, date, sed and /proc/stat are used by the helper.
+  A Nerd Font is needed for the icons. On narrow monitors, modules are hidden
+  as needed to prioritize tags and the clock.

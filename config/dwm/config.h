@@ -3,14 +3,15 @@
 /* appearance */
 static const unsigned int borderpx = 1; /* border pixel of windows */
 static const unsigned int snap = 32;    /* snap pixel */
-static const int showbar = 0;           /* 0 means no bar */
+static const int showbar = 1;           /* 0 means no bar */
 static const int topbar = 1;            /* 0 means bottom bar */
 static const int startwithgaps = 1;     /* 1 means gaps are used by default */
 static const unsigned int gappx =
     10; /* default gap between windows in pixels */
 static const char *fonts[] = {
-    "monospace:size=10",
-    "Symbols Nerd Font:size=11", /* icon glyphs for the tags */
+    "JetBrainsMono Nerd Font:pixelsize=15",
+    "monospace:pixelsize=15",
+    "Symbols Nerd Font:pixelsize=15", /* icon glyphs for the tags */
 };
 
 /* systray */
@@ -27,8 +28,8 @@ static const int showsystray = 1; /* 0 means no systray */
 
 /* colors: dusk Tokyo street */
 static const char dmenufont[] = "monospace:size=10";
-static const char norm_fg[] = "#a3adba";
-static const char norm_bg[] = "#0e0e0e";
+static const char norm_fg[] = "#adbac7";
+static const char norm_bg[] = "#040506";
 static const char norm_border[] = "#090b0d";
 
 static const char sel_fg[] = "#e9eff6";
@@ -39,6 +40,11 @@ static const char *colors[][3] = {
     /*               fg        bg        border      */
     [SchemeNorm] = {norm_fg, norm_bg, norm_border}, /* unfocused windows */
     [SchemeSel] = {sel_fg, sel_bg, sel_border},     /* focused window */
+    [SchemeBar] = {"#adbac7", "#12141a", "#1e2025"},
+    [SchemeBarActive] = {"#090b0d", "#8a949e", "#8a949e"},
+    [SchemeBarMuted] = {"#64778d", "#12141a", "#1e2025"},
+    [SchemeBarUrgent] = {"#b86a6a", "#12141a", "#1e2025"},
+    [SchemeBarAccent] = {"#507396", "#040506", "#1e2025"},
 };
 
 /* tagging (Nerd Font icons, written as \u escapes so they survive copy/paste)
