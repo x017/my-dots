@@ -30,11 +30,11 @@
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
 
-#define HEIGHT 42
+#define HEIGHT 34
 #define TOP_GAP 8
 #define SIDE_GAP 10
-#define RADIUS 12
-#define ICON_SIZE 24
+#define RADIUS 10
+#define ICON_SIZE 20
 #define ICON_SLOT 30
 #define MAX_ICONS 64
 #define PAD 8
@@ -66,7 +66,7 @@ typedef struct {
     int count, tray_width;
     cui_sw_renderer *renderer;
     cui_ctx *ui;
-    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset;
+    Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar;
     cui_ctx *popup_ui;
 } Bar;
 static volatile sig_atomic_t running = 1;
@@ -473,9 +473,11 @@ static void close_popup(Bar *b) {
 static void open_popup(Bar *b, int page) {
     XSetWindowAttributes attr; cui_renderer_iface iface;
     Panel *p = &b->panels[b->current];
-    int width = p->width < 490 ? p->width : 490;
+    int max_width = page == 4 ? 360 : 490;
+    int max_height = page == 4 ? 340 : 650;
+    int width = p->width < max_width ? p->width : max_width;
     int height = p->height - HEIGHT - 12;
-    if (height > 650) height = 650;
+    if (height > max_height) height = max_height;
     if (height < 100 || width < 100) return;
     if (b->popup) { close_popup(b); }
     attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
@@ -493,7 +495,7 @@ static void open_popup(Bar *b, int page) {
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
     b->popup_width = width; b->popup_height = height;
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page;
-    popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0;
+    popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4;
     XMapRaised(b->dpy, b->popup); XSync(b->dpy, False);
     if (XGrabKeyboard(b->dpy, b->popup, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
         fprintf(stderr, "cui-bar: cannot grab keyboard for control center\n"); close_popup(b); return;
@@ -503,15 +505,15 @@ static void open_popup(Bar *b, int page) {
 static void calendar_page(cui_ctx *ui, Bar *b) {
     static const char *weekdays[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
     time_t now = time(NULL); struct tm today, month, next; char title[80], number[8];
-    int start, days, row, col, cell = (b->popup_width - 78) / 7;
+    int start, days, row, col, cell = (b->popup_width - 64) / 7;
     localtime_r(&now, &today); month = today; month.tm_mday = 1;
     month.tm_mon += b->calendar_offset; month.tm_hour = 12; month.tm_isdst = -1; mktime(&month);
     next = month; next.tm_mon++; next.tm_mday = 0; next.tm_isdst = -1; mktime(&next);
     days = next.tm_mday; start = (month.tm_wday + 6) % 7;
     if (cell < 18) cell = 18;
     strftime(title, sizeof title, "%B %Y", &month);
-    cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 12) {
-        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+    cui_card(ui, .width = CUI_FILL, .pad = 12, .gap = 7) {
+        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 6) {
             if (cui_button(ui, "<", .size = CUI_SIZE_SM)) b->calendar_offset--;
             cui_column(ui, .width = CUI_FILL) { cui_text(ui, title, .font = CUI_FONT_MEDIUM, .size = 16); }
             if (cui_button(ui, "Today", .size = CUI_SIZE_SM)) b->calendar_offset = 0;
@@ -526,7 +528,7 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
             cui_row(ui, .gap = 0) {
                 for (col = 0; col < 7; col++) {
                     int day = row * 7 + col - start + 1;
-                    cui_column(ui, .width = CUI_PX(cell), .height = CUI_PX(30)) {
+                    cui_column(ui, .width = CUI_PX(cell), .height = CUI_PX(22)) {
                         if (day >= 1 && day <= days) {
                             snprintf(number, sizeof number, "%d", day);
                             if (day == today.tm_mday && month.tm_mon == today.tm_mon && month.tm_year == today.tm_year)
@@ -540,7 +542,7 @@ static void calendar_page(cui_ctx *ui, Bar *b) {
     }
 }
 static int draw_popup(Bar *b) {
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Calendar"};
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display"};
     XImage *image;
     cui_ctx *ui = b->popup_ui;
     if (!b->popup || !ui) return 1;
@@ -553,22 +555,31 @@ static int draw_popup(Bar *b) {
     if (!image->data) { XDestroyImage(image); return 0; }
     cui_set_viewport(ui, b->popup_width, b->popup_height, 1);
     cui_begin_frame(ui, 0.05f);
-    cui_scroll(ui, .id = "controls", .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 12) {
-        cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-            cui_column(ui, .width = CUI_FILL, .gap = 3) {
-                cui_text(ui, "QUICK CONTROLS", .font = CUI_FONT_MEDIUM, .size = 16);
-                cui_text(ui, "NETWORK  /  SOUND  /  DESKTOP", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+    if (b->popup_calendar) {
+        cui_scroll(ui, .id = "calendar", .width = CUI_FILL, .height = CUI_FILL, .pad = 10, .gap = 8) {
+            calendar_page(ui, b);
+            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
+                cui_column(ui, .width = CUI_FILL) { cui_secondary(ui, "Local time"); }
+                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
             }
-            if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
         }
-        cui_segmented(ui, "pages", pages, 5, &popup_state.page, .full_width = true);
-        if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
-        else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
-        if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-        else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-        else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-        else if (popup_state.page == 3) display_page(ui, &popup_state, &b->desktop, b->worker_busy);
-        else calendar_page(ui, b);
+    } else {
+        cui_scroll(ui, .id = "controls", .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 12) {
+            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
+                cui_column(ui, .width = CUI_FILL, .gap = 3) {
+                    cui_text(ui, "QUICK CONTROLS", .font = CUI_FONT_MEDIUM, .size = 16);
+                    cui_text(ui, "NETWORK  /  SOUND  /  DESKTOP", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+                }
+                if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+            }
+            cui_segmented(ui, "pages", pages, 4, &popup_state.page, .full_width = true);
+            if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
+            else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
+            if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+            else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+            else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+            else display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+        }
     }
     cui_end_frame(ui);
     cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
@@ -641,48 +652,48 @@ static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const ch
     cui_draw_text(ui, CUI_FONT_MONO, size, (cui_vec2){x, y}, color, text, -1);
 }
 static void dock_cell(cui_ctx *ui, int x, int w, const char *title, const char *value, cui_color accent) {
-    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1b212b));
-    cui_draw_rect(ui, (cui_rect){x + 4, 12, 2, 18}, CUI_CORNERS(1), accent);
+    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x12141a));
+    cui_draw_rect(ui, (cui_rect){x + 4, 8, 2, 18}, CUI_CORNERS(1), accent);
     cui_push_clip(ui, (cui_rect){x + 9, 4, w - 10, HEIGHT - 8});
-    label(ui, x + 10, 9, 9, CUI_RGB(0x919eaf), title);
-    label(ui, x + 10, 20, 11, CUI_RGB(0xe5e9f0), value);
+    label(ui, x + 10, 5, 9, CUI_RGB(0x919eaf), title);
+    label(ui, x + 10, 16, 11, CUI_RGB(0xe5e9f0), value);
     cui_pop_clip(ui);
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[48];
     cui_color fg = CUI_RGB(0xe5e9f0), muted = CUI_RGB(0x919eaf), blue = CUI_RGB(0xb8cfe1), white = CUI_RGB(0xf1f4f8);
     (void)r;
-    cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x171c25), CUI_RGB(0x35404e), 1);
+    cui_draw_rect_border(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(RADIUS), CUI_RGB(0x090b0d), CUI_RGB(0x2d3035), 1);
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 8, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x394451));
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 31, 12, 2}, CUI_CORNERS(1), white);
-            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 30}, 1.5f, blue);
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 4, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x303a45));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 27, 12, 2}, CUI_CORNERS(1), white);
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 26}, 1.5f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            label(ui, x + 10, 13, 12, b->urgent & mask ? CUI_RGB(0xd8aeb5) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
+            label(ui, x + 10, 9, 12, b->urgent & mask ? CUI_RGB(0xd8aeb5) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
         }
     }
     if (l.stats) {
         int x = l.tags + b->tag_count * 28 + 22;
-        label(ui, x, 8, 9, muted, "SYSTEM");
+        label(ui, x, 4, 9, muted, "SYSTEM");
         snprintf(text, sizeof text, "CPU %s", b->cpu < 0 ? "--" : "");
         if (b->cpu >= 0) snprintf(text, sizeof text, "CPU %d%%", b->cpu);
-        label(ui, x, 20, 11, fg, text);
+        label(ui, x, 16, 11, fg, text);
         if (b->memory >= 0) snprintf(text, sizeof text, "MEM %d%%", b->memory); else strcpy(text, "MEM --");
-        label(ui, x + 75, 20, 11, fg, text);
+        label(ui, x + 75, 16, 11, fg, text);
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        label(ui, x + 150, 20, 11, muted, text);
-        label(ui, x + 150, 8, 9, muted, "TEMP");
+        label(ui, x + 150, 16, 11, muted, text);
+        label(ui, x + 150, 4, 9, muted, "TEMP");
         if (b->cpu >= 0) {
-            cui_draw_rect(ui, (cui_rect){x, 34, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
-            cui_draw_rect(ui, (cui_rect){x, 34, 55 * b->cpu / 100.0f, 2}, CUI_CORNERS(1), blue);
+            cui_draw_rect(ui, (cui_rect){x, 30, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
+            cui_draw_rect(ui, (cui_rect){x, 30, 55 * b->cpu / 100.0f, 2}, CUI_CORNERS(1), blue);
         }
         if (b->memory >= 0) {
-            cui_draw_rect(ui, (cui_rect){x + 75, 34, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
-            cui_draw_rect(ui, (cui_rect){x + 75, 34, 55 * b->memory / 100.0f, 2}, CUI_CORNERS(1), CUI_RGB(0xc7bddc));
+            cui_draw_rect(ui, (cui_rect){x + 75, 30, 55, 2}, CUI_CORNERS(1), CUI_RGB(0x35404e));
+            cui_draw_rect(ui, (cui_rect){x + 75, 30, 55 * b->memory / 100.0f, 2}, CUI_CORNERS(1), CUI_RGB(0xc7bddc));
         }
-        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 215, 20, 11, b->battery <= 15 ? CUI_RGB(0xd8aeb5) : fg, text); }
+        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 215, 16, 11, b->battery <= 15 ? CUI_RGB(0xd8aeb5) : fg, text); }
     }
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
     dock_cell(ui, l.audio, 62, "SOUND", text, blue);
@@ -693,10 +704,10 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
     else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
         if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
     dock_cell(ui, l.bluetooth, 54, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
-    label(ui, l.language + 5, 15, 11, muted, b->language);
-    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x252e3a));
-    label(ui, l.clock + 11, 13, 13, white, b->clock);
-    label(ui, l.lock + 8, 14, 12, muted, "L");
+    label(ui, l.language + 5, 11, 11, muted, b->language);
+    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1b2028));
+    label(ui, l.clock + 11, 9, 13, white, b->clock);
+    label(ui, l.lock + 8, 10, 12, muted, "L");
 }
 static int draw(Bar *b) {
     XImage *image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
