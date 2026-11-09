@@ -81,7 +81,6 @@ static const Rule rules[] = {
     {NULL, "pavucontrol", NULL, 0, 1, -1},
     {NULL, "blueberry", NULL, 0, 1, -1},
     {NULL, "nm-connection-editor", NULL, 0, 1, -1},
-    {NULL, "dwm-wallpapers", NULL, 0, 1, -1},
 };
 
 /* layout(s) */
@@ -125,7 +124,6 @@ static const char *powercmd[] = {"mel", "--power", NULL};
 static const char *refreshcmd[] = {"/home/parsa/.local/bin/refreshmenu", NULL};
 static const char *lockcmd[] = {"mel", NULL};
 static const char *changelayoutcmd[] = {"kb-lay-switch", NULL};
-static const char *wallpapercmd[] = {"dwm-wallpapers", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
     {MODKEY, XK_p, spawn, {.v = roficmd}},
@@ -155,7 +153,7 @@ static const Key keys[] = {
     {MODKEY | ShiftMask, XK_minus, setgaps, {.i = GAP_RESET}},
     {MODKEY | ShiftMask, XK_equal, setgaps, {.i = GAP_TOGGLE}},
     {MODKEY | ShiftMask, XK_r, spawn, {.v = refreshcmd}},
-    {MODKEY | ShiftMask, XK_w, spawn, {.v = wallpapercmd}},
+    {MODKEY | ShiftMask, XK_w, wallpaperswitcher, {0}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},
     {MODKEY, XK_Up, focusdir, {.i = 2}},

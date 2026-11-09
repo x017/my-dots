@@ -29,13 +29,17 @@
 #include <X11/extensions/Xdamage.h>
 #include <X11/extensions/Xrender.h>
 #include <X11/keysym.h>
+#include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
+#include <sys/select.h>
 #include <locale.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -201,6 +205,7 @@ struct Systray {
 
 /* function declarations */
 static void alttab(const Arg *arg);
+static void wallpaperswitcher(const Arg *arg);
 static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h,
@@ -411,6 +416,282 @@ switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
   XSync(dpy, False);
   XSetErrorHandler(oldhandler);
   return ok && !switcher_xerror_seen;
+}
+
+/* The picker is native dwm/Xlib like Alt-Tab. Resolve Imlib2 at runtime so
+ * dwm still builds and the filenames remain usable if previews are absent. */
+typedef struct {
+  void *library;
+  void (*display)(Display *);
+  void (*visual)(Visual *);
+  void (*colormap)(Colormap);
+  void (*drawable)(Drawable);
+  void *(*load)(const char *);
+  void (*image)(void *);
+  int (*width)(void);
+  int (*height)(void);
+  void (*render)(int, int, int, int);
+  void (*freeimage)(void);
+} WallpaperImages;
+
+static int
+wallpaperimagesinit(WallpaperImages *api)
+{
+  memset(api, 0, sizeof *api);
+  api->library = dlopen("libImlib2.so.1", RTLD_LAZY | RTLD_LOCAL);
+  if (!api->library) return 0;
+#define LOADIMLIB(member, name) do { \
+  *(void **)(&api->member) = dlsym(api->library, name); \
+  if (!api->member) { dlclose(api->library); memset(api, 0, sizeof *api); return 0; } \
+} while (0)
+  LOADIMLIB(display, "imlib_context_set_display");
+  LOADIMLIB(visual, "imlib_context_set_visual");
+  LOADIMLIB(colormap, "imlib_context_set_colormap");
+  LOADIMLIB(drawable, "imlib_context_set_drawable");
+  LOADIMLIB(load, "imlib_load_image");
+  LOADIMLIB(image, "imlib_context_set_image");
+  LOADIMLIB(width, "imlib_image_get_width");
+  LOADIMLIB(height, "imlib_image_get_height");
+  LOADIMLIB(render, "imlib_render_image_on_drawable_at_size");
+  LOADIMLIB(freeimage, "imlib_free_image");
+#undef LOADIMLIB
+  api->display(dpy);
+  api->visual(DefaultVisual(dpy, screen));
+  api->colormap(DefaultColormap(dpy, screen));
+  return 1;
+}
+
+static int
+wallpapername(const char *name)
+{
+  const char *ext = strrchr(name, '.');
+  return ext && (!strcasecmp(ext, ".jpg") || !strcasecmp(ext, ".jpeg") ||
+                 !strcasecmp(ext, ".png") || !strcasecmp(ext, ".webp") ||
+                 !strcasecmp(ext, ".bmp") || !strcasecmp(ext, ".gif"));
+}
+
+static int
+wallpapercompare(const void *a, const void *b)
+{
+  return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static void
+wallpaperfree(char **paths, size_t count)
+{
+  size_t i;
+  for (i = 0; i < count; i++) free(paths[i]);
+  free(paths);
+}
+
+static char **
+wallpaperscan(const char *dir, size_t *count, char *message, size_t message_size)
+{
+  DIR *dp;
+  struct dirent *entry;
+  struct stat st;
+  char **paths = NULL, *path;
+  size_t capacity = 0, len;
+  *count = 0;
+  if (!(dp = opendir(dir))) {
+    snprintf(message, message_size, "Cannot open folder: %s", strerror(errno));
+    return NULL;
+  }
+  while ((entry = readdir(dp))) {
+    if (entry->d_name[0] == '.' || !wallpapername(entry->d_name)) continue;
+    len = strlen(dir) + strlen(entry->d_name) + 2;
+    path = ecalloc(len, 1);
+    snprintf(path, len, "%s/%s", dir, entry->d_name);
+    if (stat(path, &st) || !S_ISREG(st.st_mode)) { free(path); continue; }
+    if (*count == capacity) {
+      char **more;
+      capacity = capacity ? capacity * 2 : 32;
+      more = realloc(paths, capacity * sizeof *paths);
+      if (!more) { free(path); wallpaperfree(paths, *count); closedir(dp); die("realloc:"); }
+      paths = more;
+    }
+    paths[(*count)++] = path;
+  }
+  closedir(dp);
+  if (*count) {
+    qsort(paths, *count, sizeof *paths, wallpapercompare);
+    snprintf(message, message_size, "%zu images  /  Enter apply  /  R refresh  /  Esc close", *count);
+  } else snprintf(message, message_size, "No images found. Add files, then press R to refresh.");
+  return paths;
+}
+
+/* feh exits quickly in normal use. A helper waits for it and reports its exit
+ * status through a pipe; dwm's global SIGCHLD policy otherwise reaps children. */
+static int
+wallpaperapply(const char *path)
+{
+  int fds[2], status = 0, result = 1, ready;
+  pid_t helper;
+  fd_set readfds;
+  struct timeval timeout = {5, 0};
+  if (pipe(fds) < 0) return 0;
+  helper = fork();
+  if (helper == 0) {
+    pid_t child;
+    close(fds[0]);
+    close(ConnectionNumber(dpy));
+    signal(SIGCHLD, SIG_DFL);
+    child = fork();
+    if (child == 0) {
+      close(fds[1]);
+      execlp("feh", "feh", "--bg-fill", "--", path, (char *)NULL);
+      _exit(127);
+    }
+    if (child > 0 && waitpid(child, &status, 0) == child && WIFEXITED(status)) result = WEXITSTATUS(status);
+    (void)write(fds[1], &result, sizeof result);
+    close(fds[1]);
+    _exit(0);
+  }
+  close(fds[1]);
+  if (helper < 0) { close(fds[0]); return 0; }
+  FD_ZERO(&readfds); FD_SET(fds[0], &readfds);
+  do { ready = select(fds[0] + 1, &readfds, NULL, NULL, &timeout); } while (ready < 0 && errno == EINTR);
+  if (ready <= 0 || read(fds[0], &result, sizeof result) != sizeof result) result = 1;
+  close(fds[0]);
+  return result == 0;
+}
+
+void wallpaperswitcher(const Arg *arg)
+{
+  Monitor *m = selmon;
+  XSetWindowAttributes wa;
+  XEvent ev;
+  Window popup;
+  Drw *d;
+  Clr *head, *normal, *selected, *blue;
+  const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
+  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
+  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
+  const char *folder = getenv("DWM_WALLPAPERS_DIR"), *home = getenv("HOME");
+  char *directory, **paths, *base, message[512], line[512];
+  size_t count = 0, choice = 0, start, row;
+  int width, height, rh, header, listw, previewx, previeww, previewh, visible, done = 0;
+  int imlib, imagewidth, imageheight, pw, ph;
+  void *image = NULL;
+  size_t loaded = (size_t)-1;
+  WallpaperImages api;
+  KeySym key;
+  (void)arg;
+  if (folder && *folder) directory = strdup(folder);
+  else if (home && *home) {
+    directory = ecalloc(strlen(home) + sizeof "/Downloads/wallpaper", 1);
+    sprintf(directory, "%s/Downloads/wallpaper", home);
+  } else directory = strdup(".");
+  if (!directory) die("strdup:");
+  paths = wallpaperscan(directory, &count, message, sizeof message);
+  if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
+    wallpaperfree(paths, count); free(directory); return;
+  }
+  imlib = wallpaperimagesinit(&api);
+  width = MAX(1, MIN(1000, m->mw - 20));
+  height = MAX(1, MIN(600, m->mh - 20));
+  rh = MAX(28, bh + 5); header = 3 * rh;
+  listw = width >= 550 ? width * 38 / 100 : width - 32;
+  previewx = 16 + listw + 16;
+  previeww = width - previewx - 16;
+  previewh = height - header - 2 * rh - 16;
+  visible = MAX(1, (height - header - 2 * rh) / rh);
+  wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
+  wa.event_mask = ExposureMask | ButtonPressMask;
+  popup = XCreateWindow(dpy, root, m->mx + (m->mw - width) / 2,
+                        m->my + (m->mh - height) / 2, width, height, 1,
+                        DefaultDepth(dpy, screen), CopyFromParent, DefaultVisual(dpy, screen),
+                        CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
+  d = drw_create(dpy, screen, root, width, height);
+  drw_fontset_create(d, font, LENGTH(font));
+  head = drw_scm_create(d, hc, 3); normal = drw_scm_create(d, nc, 3);
+  selected = drw_scm_create(d, sc, 3); blue = drw_scm_create(d, bc, 3);
+  XSetWindowBorder(dpy, popup, head[ColBorder].pixel); XMapRaised(dpy, popup);
+  while (!done && running) {
+    if (count && loaded != choice) {
+      if (image) { api.image(image); api.freeimage(); image = NULL; }
+      if (imlib) image = api.load(paths[choice]);
+      loaded = choice;
+    }
+    start = count && choice >= (size_t)visible ? choice - visible + 1 : 0;
+    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 1);
+    drw_text(d, 16, 12, MAX(1, width - 32), rh, 4, "W A L L P A P E R S", 0);
+    drw_setscheme(d, blue);
+    if (width >= 550) drw_text(d, previewx, 12, MAX(1, previeww), rh, 4, "P R E V I E W", 0);
+    drw_setscheme(d, head);
+    drw_rect(d, 16, 12 + rh, MAX(1, width - 32), 1, 1, 0);
+    drw_text(d, 16, 16 + rh, MAX(1, width - 32), rh, 4, directory, 0);
+    for (row = 0; row < (size_t)visible; row++) {
+      size_t i = start + row;
+      drw_setscheme(d, i < count && i == choice ? selected : normal);
+      base = i < count ? strrchr(paths[i], '/') : NULL;
+      snprintf(line, sizeof line, "%s", i < count ? (base ? base + 1 : paths[i]) : (count ? "" : "No wallpapers"));
+      drw_text(d, 16, header + row * rh, MAX(1, listw), rh - 2, 10, line, 0);
+    }
+    if (previeww > 0 && previewh > rh) {
+      drw_setscheme(d, normal);
+      drw_rect(d, previewx, header, previeww, previewh, 1, 1);
+      if (count && image) {
+        api.image(image); imagewidth = api.width(); imageheight = api.height();
+        if (imagewidth > 0 && imageheight > 0) {
+          pw = MAX(1, previeww - 16); ph = (int)((double)imageheight * pw / imagewidth);
+          if (ph > previewh - 16) { ph = previewh - 16; pw = (int)((double)imagewidth * ph / imageheight); }
+          pw = MAX(1, pw); ph = MAX(1, ph);
+          api.drawable(d->drawable);
+          api.render(previewx + (previeww - pw) / 2, header + (previewh - ph) / 2, pw, ph);
+        }
+      } else {
+        drw_setscheme(d, normal);
+        drw_text(d, previewx, header + rh, previeww, rh, 12,
+                 !imlib ? "Install Imlib2 for image previews" : count ? "Preview unavailable for this image" : "Select a wallpaper", 0);
+      }
+      drw_setscheme(d, selected);
+      drw_text(d, previewx, height - 2 * rh - 8, previeww, rh, 12, "SET WALLPAPER  /  ENTER", 0);
+    }
+    drw_setscheme(d, head);
+    drw_text(d, 16, height - rh - 4, MAX(1, width - 32), rh, 4, message, 0);
+    drw_map(d, popup, 0, 0, width, height);
+    XNextEvent(dpy, &ev);
+    if (ev.type == KeyPress) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Escape) done = 1;
+      else if (key == XK_r || key == XK_R) {
+        if (image) { api.image(image); api.freeimage(); image = NULL; }
+        wallpaperfree(paths, count);
+        paths = wallpaperscan(directory, &count, message, sizeof message);
+        choice = 0; loaded = (size_t)-1;
+      } else if (count && (key == XK_Down || key == XK_j)) choice = (choice + 1) % count;
+      else if (count && (key == XK_Up || key == XK_k)) choice = (choice + count - 1) % count;
+      else if (count && key == XK_Home) choice = 0;
+      else if (count && key == XK_End) choice = count - 1;
+      else if (count && (key == XK_Return || key == XK_KP_Enter)) {
+        if (wallpaperapply(paths[choice])) done = 1;
+        else snprintf(message, sizeof message, "Failed or timed out. Check feh and the selected image.");
+      }
+    } else if (ev.type == ButtonPress && ev.xbutton.window == popup) {
+      int x = ev.xbutton.x, y = ev.xbutton.y;
+      if (count && ev.xbutton.button == Button4) choice = (choice + count - 1) % count;
+      else if (count && ev.xbutton.button == Button5) choice = (choice + 1) % count;
+      else if (ev.xbutton.button == Button1 && x >= 16 && x < 16 + listw && y >= header && y < header + visible * rh) {
+        size_t i = start + (y - header) / rh;
+        if (i < count) choice = i;
+      } else if (count && ev.xbutton.button == Button1 && previeww > 0 && x >= previewx && x < previewx + previeww && y >= height - 2 * rh - 8 && y < height - rh - 8) {
+        if (wallpaperapply(paths[choice])) done = 1;
+        else snprintf(message, sizeof message, "Failed or timed out. Check feh and the selected image.");
+      }
+    } else if (ev.type == ConfigureNotify && ev.xconfigure.window == root) {
+      done = 1; configurenotify(&ev);
+    } else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify &&
+               ev.type != FocusIn && ev.type != KeyRelease && handler[ev.type]) handler[ev.type](&ev);
+  }
+  if (image) { api.image(image); api.freeimage(); }
+  if (imlib) dlclose(api.library);
+  XDestroyWindow(dpy, popup); XUngrabKeyboard(dpy, CurrentTime);
+  drw_scm_free(d, head, 3); drw_scm_free(d, normal, 3);
+  drw_scm_free(d, selected, 3); drw_scm_free(d, blue, 3); drw_free(d);
+  wallpaperfree(paths, count); free(directory);
 }
 
 /* The list keeps window IDs rather than Client pointers because windows can

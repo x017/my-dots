@@ -74,31 +74,22 @@ than three monitors, the cards page automatically as you cycle. The previews
 use the same X extensions and fallback as the window switcher. Existing
 Alt+comma and Alt+period monitor focus shortcuts still work.
 
-Wallpaper picker
-----------------
-Alt+Shift+W opens a standalone GTK3 picker using the Quickshell Editor Dark
-palette. It scans ~/Downloads/wallpaper (the folder used by the Hyprland
-configuration), displays thumbnails and a larger preview, and watches that
-folder for changes. Search by filename, select an image and press Set
-wallpaper, or double-click an image. Escape closes the picker. Images directly
-in the folder with jpg, jpeg, png, webp, bmp or gif extensions are shown;
-decoding depends on the installed GdkPixbuf loaders.
+Wallpaper switcher
+------------------
+Alt+Shift+W opens a built-in X11 wallpaper switcher, drawn by dwm in the same
+style as Alt+Tab. There is no separate GTK application to install or launch.
+It scans ~/Downloads/wallpaper (the folder used by your Hyprland config) when
+opened. Use Up/Down or j/k (or the mouse) to choose an image, Enter or the
+SET WALLPAPER button to apply it, R to rescan, and Escape to cancel. Supported
+extensions are jpg, jpeg, png, webp, bmp and gif. The large preview shows the
+selected image when Imlib2 and its appropriate image loader are installed;
+if Imlib2 is unavailable, the list and selection still work.
 
-Install GTK3 and pkg-config development packages and feh, then build and
-install the picker separately:
-
-    cd ~/.config/dwm/wallpaper
-    make
-    sudo make install
-
-Rebuild and restart dwm to enable the shortcut and floating window rule. The
-picker runs `feh --bg-fill` on the selected file, applying it to the X11
-screens and saving ~/.fehbg. To restore the choice on login, add
-`[ -x "$HOME/.fehbg" ] && "$HOME/.fehbg" &` to your existing dwm autostart
-script or .xinitrc. A failed feh invocation is reported in the picker; it
-does not change Hyprland's wallpaper configuration.
-
-To use another directory, set DWM_WALLPAPERS_DIR to an absolute path in your
-session environment, or run `dwm-wallpapers /path/to/wallpapers`. If the
-folder is missing or unreadable, the picker reports the error; create it or
-fix permissions and use Refresh. The command must be on PATH for the shortcut.
+Install feh and the Imlib2 runtime, then rebuild and restart dwm with
+`make clean install`. The switcher executes `feh --bg-fill` for the selected
+file on the X11 screens. feh saves ~/.fehbg; to restore the choice at login,
+add `[ -x "$HOME/.fehbg" ] && "$HOME/.fehbg" &` to your dwm autostart script
+or .xinitrc. To use another folder, set DWM_WALLPAPERS_DIR to an absolute
+path in the environment before starting dwm. Missing or unreadable folders
+are reported in the popup; create the folder and press R to retry. The
+switcher does not change Hyprland's wallpaper configuration.
