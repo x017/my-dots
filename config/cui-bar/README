@@ -58,17 +58,21 @@ controls and recent notifications directly beneath the island (or right-aligned
 when the island does not fit). The island worker polls roughly every 500 ms,
 plus the time needed to run its commands. The notification part integrates with a
 running Dunst daemon via `dunstctl` (and `busctl` for history); it does not
-start or replace a notification daemon. The number is displayed/waiting
+start or replace a notification daemon. A separate `busctl --user` monitor
+observes notification calls on the session bus to show the latest arrival
+immediately and capture its raw image in memory. Monitoring requires a bus
+that permits the D-Bus monitoring API and a busctl version with JSON monitor
+output; if unavailable, the bar falls back to Dunst history. The bar never logs
+notification content. Image data is bounded and downscaled; only the latest
+live image is retained, and it is lost when the bar exits. Older entries use
+Dunst icon paths when available, or initials otherwise. The latest image can
+be matched to a history entry by app, summary and body; modified or identical
+messages may not match reliably. Live previews do not provide a dismissal
+button until Dunst reports the entry in history. Each history entry with an ID
+has a Dismiss button that removes it via `dunstctl history-rm` (requires a
+Dunst version that supports this command). The number is displayed/waiting
 notifications when present, otherwise the size of Dunst's history, not an
-unread count. Dunst reports history after notifications leave the screen, so
-new arrivals initially show a generic alert and their details appear in history
-afterward. Each history entry with an ID has a Dismiss button that removes that
-entry from Dunst history via `dunstctl history-rm` (requires a Dunst version
-that supports this command). This does not act on live popups. History cards
-show Dunst icon paths when they point to readable PNG or JPEG files, and fall
-back to initials otherwise. Dunst history does not expose raw image-data, so
-Telegram avatars sent only as raw pixels cannot be shown by this integration. Other notification
-daemons are not currently supported. If Dunst or
+unread count. Dunst itself still controls its own popup and history. If Dunst or
 playerctl is missing, the corresponding feature is shown as unavailable. On
 narrow monitors the island shrinks; right-click the dashboard button to open
 its notification/media panel if the island cannot fit. Tray capacity may shrink

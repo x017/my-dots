@@ -31,6 +31,7 @@
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
 #include "island.h"
+#include "notification_live.h"
 
 #define HEIGHT 28
 #define TOP_GAP 8
@@ -75,6 +76,8 @@ typedef struct {
     Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
+    int live_fd, live_seen, live_active_seen, live_generation, live_texture_generation;
+    double live_until, live_started; LiveNotice live_notice; cui_texture live_texture;
     struct { char path[512]; cui_texture texture; } notice_images[ISLAND_NOTICES];
     Window tooltip; cui_ctx *tooltip_ui; int tooltip_kind, tooltip_panel, tooltip_width, tooltip_height;
 } Bar;
@@ -276,6 +279,22 @@ static int start_island(Bar *b) {
     if (child < 0) { close(fd[0]); return 0; }
     fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
     b->island_fd = fd[0]; return 1;
+}
+static int start_live(Bar *b) {
+    int fd[2]; pid_t child;
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fd) < 0) return 0;
+    fcntl(fd[0], F_SETFD, FD_CLOEXEC); fcntl(fd[1], F_SETFD, FD_CLOEXEC);
+    child = fork();
+    if (!child) {
+        close(fd[0]); close(ConnectionNumber(b->dpy));
+        if (b->worker_fd >= 0) close(b->worker_fd);
+        if (b->island_fd >= 0) close(b->island_fd);
+        live_worker(fd[1]);
+    }
+    close(fd[1]);
+    if (child < 0) { close(fd[0]); return 0; }
+    fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
+    b->live_fd = fd[0]; return 1;
 }
 static void island_request(Bar *b, int action, int id) {
     IslandRequest request = {action, id};
@@ -555,6 +574,8 @@ static void close_popup(Bar *b) {
             if (b->notice_images[i].texture) cui_image_destroy(b->popup_ui, b->notice_images[i].texture);
         }
         memset(b->notice_images, 0, sizeof b->notice_images);
+        if (b->live_texture) cui_image_destroy(b->popup_ui, b->live_texture);
+        b->live_texture = 0; b->live_texture_generation = 0;
         cui_destroy(b->popup_ui); b->popup_ui = NULL;
     }
     wipe(&popup_state, sizeof popup_state); popup_bar = NULL;
@@ -645,6 +666,17 @@ static cui_texture notice_image(cui_ctx *ui, Bar *b, int i, const char *path) {
     }
     return b->notice_images[i].texture;
 }
+static int live_matches(const Bar *b, const IslandNotice *n) {
+    return b->live_seen && !strcmp(b->live_notice.app, n->app) && !strcmp(b->live_notice.title, n->title) && !strcmp(b->live_notice.body, n->body);
+}
+static cui_texture live_image(cui_ctx *ui, Bar *b) {
+    if (b->live_texture_generation != b->live_generation) {
+        if (b->live_texture) cui_image_destroy(ui, b->live_texture);
+        b->live_texture = b->live_notice.has_image ? cui_image_create(ui, LIVE_IMAGE_SIDE, LIVE_IMAGE_SIDE, b->live_notice.rgba) : 0;
+        b->live_texture_generation = b->live_generation;
+    }
+    return b->live_texture;
+}
 static void notifications_page(cui_ctx *ui, Bar *b) {
     int i;
     cui_scroll(ui, .id = "notifications", .width = CUI_FILL, .height = CUI_FILL, .pad = 14, .gap = 10) {
@@ -664,6 +696,18 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
                 if (cui_button(ui, "Next", .icon = CUI_ICON_SKIP_FORWARD, .size = CUI_SIZE_SM)) island_action(b, ISLAND_NEXT);
             }
         }
+        if (b->live_seen && b->live_until > island_now()) {
+            int matched = 0;
+            for (i = 0; i < b->island.notice_count; i++) if (live_matches(b, &b->island.notices[i])) matched = 1;
+            if (!matched) cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 5) {
+                cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
+                    cui_avatar(ui, b->live_notice.title, .size = 32, .image = live_image(ui, b));
+                    cui_text(ui, b->live_notice.app[0] ? b->live_notice.app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
+                }
+                cui_text(ui, b->live_notice.title, .font = CUI_FONT_MEDIUM, .size = 14);
+                if (b->live_notice.body[0]) cui_text(ui, b->live_notice.body, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+            }
+        }
         if (!b->island.notifications_available) cui_card(ui, .width = CUI_FILL, .pad = 14) {
             cui_secondary(ui, "Dunst history unavailable. Install and run dunst with dunstctl.");
         }
@@ -679,7 +723,7 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
             cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 5) {
                 cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8) {
                     cui_avatar(ui, n->title[0] ? n->title : n->app, .size = 32,
-                               .image = notice_image(ui, b, i, n->icon_path));
+                               .image = live_matches(b, n) && b->live_notice.has_image ? live_image(ui, b) : notice_image(ui, b, i, n->icon_path));
                     cui_column(ui, .width = CUI_FILL) {
                         cui_text(ui, n->app[0] ? n->app : "Notification", .size = 10, .color = CUI_COLOR_INFO);
                     }
@@ -881,7 +925,9 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     }
     text_width = controls - text_left - 6;
     if (text_width < 12) return;
-    if (b->island_notice_until > now && b->island_live) snprintf(text, sizeof text, "New notification");
+    if (b->island_notice_until > now && b->island_live && b->live_seen)
+        snprintf(text, sizeof text, "%s: %s", b->live_notice.app[0] ? b->live_notice.app : "Notification", b->live_notice.title);
+    else if (b->island_notice_until > now && b->island_live) snprintf(text, sizeof text, "New notification");
     else if (b->island_notice_until > now && b->island.notice_count)
         snprintf(text, sizeof text, "%s: %s", b->island.notices[0].app[0] ? b->island.notices[0].app : "Notification", b->island.notices[0].title);
     else if (b->island.player_available)
@@ -1146,7 +1192,7 @@ int main(void) {
     Bar b = {0}; XSetWindowAttributes attr; WorkerFrame incoming; size_t received = 0;
     time_t next_stats = 0; int dirty = 1, i, result = 0;
     cui_renderer_iface iface;
-    b.worker_fd = b.island_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
+    b.worker_fd = b.island_fd = b.live_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
     b.tag_count = 9; strcpy(b.clock, "--:--"); strcpy(b.language, "--");
     signal(SIGINT, terminate); signal(SIGTERM, terminate); signal(SIGCHLD, SIG_IGN); signal(SIGPIPE, SIG_IGN);
     b.dpy = XOpenDisplay(NULL);
@@ -1187,6 +1233,7 @@ int main(void) {
         fprintf(stderr, "cui-bar: waiting for dwm monitor IPC; rebuild and restart dwm if it does not appear\n");
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
     if (!start_island(&b)) fprintf(stderr, "cui-bar: could not start island worker\n");
+    if (!start_live(&b)) fprintf(stderr, "cui-bar: could not start live notification monitor\n");
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
         struct timeval timeout; time_t now = time(NULL);
@@ -1206,6 +1253,7 @@ int main(void) {
         FD_ZERO(&fds); FD_SET(xfd, &fds);
         if (b.worker_fd >= 0) { FD_SET(b.worker_fd, &fds); if (b.worker_fd > maxfd) maxfd = b.worker_fd; }
         if (b.island_fd >= 0) { FD_SET(b.island_fd, &fds); if (b.island_fd > maxfd) maxfd = b.island_fd; }
+        if (b.live_fd >= 0) { FD_SET(b.live_fd, &fds); if (b.live_fd > maxfd) maxfd = b.live_fd; }
         timeout.tv_sec = next_stats > now ? next_stats - now : 0; timeout.tv_usec = 0;
         if ((b.island.playing || b.island_notice_until > island_now()) && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 33333; }
         else if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
@@ -1213,14 +1261,30 @@ int main(void) {
         if (ready == 0 && b.popup) b.popup_dirty = 1;
         if (ready == 0 && (b.island.playing || b.island_notice_until > island_now())) dirty = 1;
         if (ready < 0 && errno != EINTR) { fprintf(stderr, "cui-bar: select: %s\n", strerror(errno)); result = 1; break; }
+        if (ready > 0 && b.live_fd >= 0 && FD_ISSET(b.live_fd, &fds)) {
+            LiveNotice event; ssize_t n = recv(b.live_fd, &event, sizeof event, 0);
+            if (n == sizeof event) {
+                b.live_notice = event; b.live_seen = 1; b.live_generation++;
+                b.live_started = island_now(); b.live_until = b.live_started + 30; b.live_active_seen = 0;
+                b.island_notice_until = b.live_started + 3; b.island_live = 1;
+                dirty = 1;
+            } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
+                fprintf(stderr, "cui-bar: live notification monitor unavailable; using Dunst history\n");
+                close(b.live_fd); b.live_fd = -1;
+            }
+        }
         if (ready > 0 && b.island_fd >= 0 && FD_ISSET(b.island_fd, &fds)) {
             IslandFrame next; ssize_t n = recv(b.island_fd, &next, sizeof next, 0);
             if (n == sizeof next) {
+                if (b.live_seen && next.notifications_available) {
+                    if (next.active_count > 0) b.live_active_seen = 1;
+                    else if (b.live_active_seen || island_now() - b.live_started > 2) b.live_until = 0;
+                }
                 if (b.island_initialized && next.notifications_available && b.island.notifications_available) {
-                    if (next.notice_count && (next.history_count > b.island.history_count ||
+                    if (next.notice_count && !(b.live_seen && live_matches(&b, &next.notices[0])) && (next.history_count > b.island.history_count ||
                         (b.island.notice_count && (strcmp(next.notices[0].title, b.island.notices[0].title) || strcmp(next.notices[0].app, b.island.notices[0].app))))) {
                         b.island_notice_until = island_now() + 3; b.island_live = 0;
-                    } else if (next.active_count > b.island.active_count) {
+                    } else if (next.active_count > b.island.active_count && b.live_fd < 0) {
                         b.island_notice_until = island_now() + 3; b.island_live = 1;
                     }
                 }
@@ -1280,6 +1344,7 @@ cleanup:
     close_popup(&b);
     if (b.worker_fd >= 0) close(b.worker_fd);
     if (b.island_fd >= 0) close(b.island_fd);
+    if (b.live_fd >= 0) close(b.live_fd);
     if (b.selection && XGetSelectionOwner(b.dpy, b.selection) == b.win) XSetSelectionOwner(b.dpy, b.selection, None, CurrentTime);
     for (i = 0; i < b.count; i++) {
         XReparentWindow(b.dpy, b.icons[i].win, b.root, 0, 0);
