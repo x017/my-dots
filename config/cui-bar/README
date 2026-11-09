@@ -55,3 +55,14 @@ may therefore need an XEmbed mode or an additional SNI-to-XEmbed bridge. Tray
 icons remain separate application windows and their appearance is controlled
 by those applications. The software renderer currently requires a common
 little-endian 32-bit X11 visual; unsupported visuals report an error and exit.
+
+Monitor troubleshooting
+-----------------------
+Each panel is a separate X11 window, sized and placed from dwm's monitor IPC;
+workspace clicks target that monitor. The bar does not assume that the X11
+root window is a monitor. If no compatible IPC is available it waits instead
+of drawing a desktop-wide fallback. After upgrading, install BOTH the new bar
+and dwm and restart dwm; stop any older cui-bar process first. dwm must be
+compiled with Xinerama support (the default in config.mk), and Xinerama must
+report the displays as distinct screens. Mirrored displays or a desktop that
+Xinerama reports as one screen will be treated as one monitor by dwm.

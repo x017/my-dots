@@ -30,7 +30,7 @@
 #define MAX_ICONS 64
 #define PAD 8
 #define BUTTON_WIDTH 92
-#define CLOCK_WIDTH 160
+#define RIGHT_MODULES 336
 #define TRAY_PAD 8
 #define XEMBED_EMBEDDED_NOTIFY 0
 #define XEMBED_WINDOW_ACTIVATE 1
@@ -101,12 +101,12 @@ static int icon_mapped(Bar *b, Window w) {
 }
 static void position_icons(Bar *b) {
     int i, n = 0, x;
-    int limit = (b->width - (16 + b->tag_count * 28 + 412)) / ICON_SLOT;
+    int limit = (b->width - (24 + b->tag_count * 28 + RIGHT_MODULES)) / ICON_SLOT;
     if (limit < 0) limit = 0;
     if (limit > 8) limit = 8;
     for (i = 0; i < b->count; i++) if (b->icons[i].mapped && n < limit) n++;
     b->tray_width = n ? n * ICON_SLOT + TRAY_PAD : 0;
-    x = b->width - CLOCK_WIDTH - b->tray_width + TRAY_PAD / 2;
+    x = b->width - RIGHT_MODULES - b->tray_width + TRAY_PAD / 2;
     n = 0;
     for (i = 0; i < b->count; i++) {
         if (b->icons[i].mapped && n++ < limit) {
@@ -272,6 +272,7 @@ static void read_workspace(Bar *b) {
             int at = 3 + i * 8, old_id = b->panels[i].id;
             Panel *p = &b->panels[i];
             int is_new = i >= b->panel_count;
+            int was_uninitialized = p->width <= 1;
             if (is_new) {
                 XSetWindowAttributes attr;
                 attr.override_redirect = True; attr.background_pixel = BlackPixel(b->dpy, b->screen);
@@ -284,8 +285,8 @@ static void read_workspace(Bar *b) {
             p->width = (int)v[at + 6]; p->height = (int)v[at + 7];
             if (p->width <= 0 || p->width > 32767) p->width = 1;
             XMoveResizeWindow(b->dpy, p->win, p->x, p->y, p->width, HEIGHT);
-            if (is_new) XMapRaised(b->dpy, p->win);
-            if (is_new || old_id != p->id) send_command(b, 2, (long)p->win, p->id);
+            XMapRaised(b->dpy, p->win);
+            if (is_new || old_id != p->id || was_uninitialized) send_command(b, 2, (long)p->win, p->id);
         }
         for (i = count; i < b->panel_count; i++) XDestroyWindow(b->dpy, b->panels[i].win);
         b->panel_count = count;
@@ -497,81 +498,76 @@ static void popup_event(Bar *b, XEvent *e) {
     if (b->popup && !draw_popup(b)) close_popup(b);
 }
 
-/* Geometry for a centered workspace group and right-aligned modules. */
+/* A left-hand workspace rail, optional telemetry, then a compact control dock.
+ * The same geometry drives painting, hit testing and tray placement. */
 typedef struct { int stats, tags, audio, network, bluetooth, tray, clock, language, lock; } Layout;
 static Layout layout(const Bar *b) {
     Layout l; int right = b->width - PAD;
-    l.lock = right - 32; right = l.lock - 4;
-    l.language = right - 38; right = l.language - 4;
-    l.clock = right - 70; right = l.clock - 4;
-    { int tray = b->current == 0 ? b->tray_width : 0;
-      l.tray = right - tray; right = l.tray - (tray ? 4 : 0); }
-    l.bluetooth = right - 76; right = l.bluetooth - 4;
-    l.network = right - 100; right = l.network - 4;
-    l.audio = right - 80;
-    l.tags = (b->width - b->tag_count * 28) / 2;
-    l.stats = (l.tags >= 8 + 4 * 70 && l.tags + b->tag_count * 28 + 8 <= l.audio);
-    if (l.tags + b->tag_count * 28 + 8 > l.audio) l.tags = 8;
+    l.lock = right - 28; right = l.lock - 4;
+    l.clock = right - 64; right = l.clock - 4;
+    l.language = right - 34; right = l.language - 4;
+    l.bluetooth = right - 54; right = l.bluetooth - 4;
+    l.network = right - 62; right = l.network - 4;
+    l.audio = right - 62; right = l.audio - 4;
+    l.tray = right - (b->current == 0 ? b->tray_width : 0);
+    l.tags = 38;
+    l.stats = l.tray - (l.tags + b->tag_count * 28) >= 300;
     return l;
 }
-static void metric(cui_ctx *ui, int x, int w, const char *text, cui_color fg) {
-    cui_rect rect = {(float)x, 3, (float)w, HEIGHT - 6};
-    cui_draw_rect(ui, (cui_rect){(float)x, 10, 1, 16}, CUI_CORNERS(0), CUI_RGB(0x303946));
-    cui_push_clip(ui, (cui_rect){rect.x + 6, rect.y, rect.w - 8, rect.h});
-    cui_draw_text(ui, CUI_FONT_MONO, 12, (cui_vec2){rect.x + 9, 10}, fg, text, -1);
+static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const char *text) {
+    cui_draw_text(ui, CUI_FONT_MONO, size, (cui_vec2){x, y}, color, text, -1);
+}
+static void dock_cell(cui_ctx *ui, int x, int w, const char *title, const char *value, cui_color accent) {
+    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x12141a));
+    cui_draw_rect(ui, (cui_rect){x + 4, 9, 2, 18}, CUI_CORNERS(1), accent);
+    cui_push_clip(ui, (cui_rect){x + 9, 4, w - 10, HEIGHT - 8});
+    label(ui, x + 10, 6, 9, CUI_RGB(0x64778d), title);
+    label(ui, x + 10, 17, 11, CUI_RGB(0xadbac7), value);
     cui_pop_clip(ui);
 }
-
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
-    Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[180];
-    cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x64778d);
+    Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[48];
+    cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x64778d), blue = CUI_RGB(0x7fa8c9), gold = CUI_RGB(0xf2d49e);
     (void)r;
     cui_draw_rect(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(0), CUI_RGB(0x090b0d));
-    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x2d3948));
-    if (l.stats) {
-        if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
-        metric(ui, 8, 66, text, muted);
-        if (b->cpu >= 0) snprintf(text, sizeof text, "CPU %d%%", b->cpu); else strcpy(text, "CPU --");
-        metric(ui, 78, 66, text, fg);
-        if (b->memory >= 0) snprintf(text, sizeof text, "RAM %d%%", b->memory); else strcpy(text, "RAM --");
-        metric(ui, 148, 66, text, fg);
-        if (b->battery >= 0) snprintf(text, sizeof text, "BAT %d%%", b->battery); else strcpy(text, "BAT --");
-        metric(ui, 218, 66, text, b->battery >= 0 && b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg);
-    }
-    if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.audio) {
-        cui_draw_rect(ui, (cui_rect){l.tags - 6, 4, b->tag_count * 28 + 12, HEIGHT - 8}, CUI_CORNERS(4), CUI_RGB(0x121820));
+    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x2d3035));
+    cui_draw_rect(ui, (cui_rect){8, 8, 22, 20}, CUI_CORNERS(5), CUI_RGB(0x1c2834));
+    label(ui, 13, 11, 11, blue, "W");
+    if (l.tags + b->tag_count * 28 <= l.tray - 4) {
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 7, HEIGHT - 7, 14, 2}, CUI_CORNERS(1), CUI_RGB(0xf2d49e));
-            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, HEIGHT - 6}, 1, CUI_RGB(0x7fa8c9));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 5, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x24313d));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 28, 12, 2}, CUI_CORNERS(1), gold);
+            else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 27}, 1.5f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            cui_draw_text(ui, CUI_FONT_MONO, 12, (cui_vec2){x + 10, 10},
-                          b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? CUI_RGB(0xf2d49e) : b->occupied & mask ? fg : muted, text, -1);
+            label(ui, x + 10, 10, 12, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? gold : b->occupied & mask ? fg : muted, text);
         }
     }
-    if (b->snapshot.audio_available) snprintf(text, sizeof text, b->snapshot.muted ? "MUTED" : "VOL %d%%", b->snapshot.volume);
-    else strcpy(text, "VOL --");
-    metric(ui, l.audio, 80, text, b->snapshot.muted ? muted : fg);
-    if (!b->network_available) strcpy(text, "NET --");
-    else if (b->ethernet) strcpy(text, "ETHERNET");
-    else if (b->snapshot.wifi_device[0]) {
-        int strength = -1;
-        for (i = 0; i < b->snapshot.networks_count; i++) if (b->snapshot.networks[i].active) { strength = b->snapshot.networks[i].signal; break; }
-        if (strength >= 0) snprintf(text, sizeof text, "WIFI %d%%", strength); else strcpy(text, "WIFI ON");
-    } else if (b->snapshot.wifi_available && !b->snapshot.wifi_enabled) strcpy(text, "WIFI OFF");
-    else strcpy(text, "OFFLINE");
-    metric(ui, l.network, 100, text, !b->network_available ? muted : !b->ethernet && !b->snapshot.wifi_device[0] ? CUI_RGB(0xb86a6a) : fg);
-    if (!b->snapshot.bluetooth_available) strcpy(text, "BT --");
-    else if (!b->snapshot.bluetooth_enabled) strcpy(text, "BT OFF");
-    else {
-        int connected = 0;
-        for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
-        if (connected) snprintf(text, sizeof text, "BT %d", connected); else strcpy(text, "BT ON");
+    if (l.stats) {
+        int x = l.tags + b->tag_count * 28 + 22;
+        label(ui, x, 6, 9, muted, "SYSTEM");
+        snprintf(text, sizeof text, "CPU %s", b->cpu < 0 ? "--" : "");
+        if (b->cpu >= 0) snprintf(text, sizeof text, "CPU %d%%", b->cpu);
+        label(ui, x, 17, 11, fg, text);
+        if (b->memory >= 0) snprintf(text, sizeof text, "MEM %d%%", b->memory); else strcpy(text, "MEM --");
+        label(ui, x + 75, 17, 11, fg, text);
+        if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
+        label(ui, x + 150, 17, 11, muted, text);
+        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 205, 17, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text); }
     }
-    metric(ui, l.bluetooth, 76, text, b->snapshot.bluetooth_enabled ? fg : muted);
-    if (b->current == 0 && b->tray_width) cui_draw_rect(ui, (cui_rect){l.tray, 10, 1, 16}, CUI_CORNERS(0), CUI_RGB(0x303946));
-    metric(ui, l.clock, 70, b->clock, fg); metric(ui, l.language, 38, b->language, fg);
-    metric(ui, l.lock, 32, "L", muted);
+    if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
+    dock_cell(ui, l.audio, 62, "SOUND", text, blue);
+    if (!b->network_available) strcpy(text, "--"); else if (b->ethernet) strcpy(text, "LAN");
+    else if (b->snapshot.wifi_device[0]) strcpy(text, "WIFI"); else strcpy(text, "OFF");
+    dock_cell(ui, l.network, 62, "NET", text, b->ethernet || b->snapshot.wifi_device[0] ? blue : muted);
+    if (!b->snapshot.bluetooth_available) strcpy(text, "--"); else if (!b->snapshot.bluetooth_enabled) strcpy(text, "OFF");
+    else { int connected = 0; for (i = 0; i < b->snapshot.devices_count; i++) connected += b->snapshot.devices[i].connected;
+        if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
+    dock_cell(ui, l.bluetooth, 54, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
+    label(ui, l.language + 5, 12, 11, muted, b->language);
+    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1c2834));
+    label(ui, l.clock + 11, 10, 13, gold, b->clock);
+    label(ui, l.lock + 8, 11, 12, muted, "L");
 }
 static int draw(Bar *b) {
     XImage *image = XCreateImage(b->dpy, DefaultVisual(b->dpy, b->screen), DefaultDepth(b->dpy, b->screen),
@@ -591,9 +587,9 @@ static int draw(Bar *b) {
 }
 static void clicked(Bar *b, XButtonEvent *e) {
     Layout l = layout(b); int x = e->x;
-    if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.audio && x >= l.tags && x < l.tags + b->tag_count * 28 && e->button == Button1)
+    if (l.tags >= 0 && l.tags + b->tag_count * 28 <= l.tray - 4 && x >= l.tags && x < l.tags + b->tag_count * 28 && e->button == Button1)
         send_command(b, 1, 1l << ((x - l.tags) / 28), b->panels[b->current].id);
-    else if (x >= l.audio && x < l.audio + 80) {
+    else if (x >= l.audio && x < l.audio + 62) {
         if (e->button == Button1) open_popup(b, 2);
         else if (e->button == Button3 && b->snapshot.audio_available) audio_action(b, ACT_AUDIO_MUTE, 0);
         else if ((e->button == Button4 || e->button == Button5) && b->snapshot.audio_available) {
@@ -602,11 +598,11 @@ static void clicked(Bar *b, XButtonEvent *e) {
             if (value > 100) value = 100;
             audio_action(b, ACT_AUDIO_VOLUME, value);
         }
-    } else if (x >= l.network && x < l.network + 100) {
+    } else if (x >= l.network && x < l.network + 62) {
         if (e->button == Button1) open_popup(b, 0);
         else if (e->button == Button3 && b->snapshot.wifi_available)
             audio_action(b, b->snapshot.wifi_enabled ? ACT_WIFI_OFF : ACT_WIFI_ON, 0);
-    } else if (x >= l.bluetooth && x < l.bluetooth + 76) {
+    } else if (x >= l.bluetooth && x < l.bluetooth + 54) {
         if (e->button == Button1) open_popup(b, 1);
         else if (e->button == Button3 && b->snapshot.bluetooth_available)
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
@@ -626,7 +622,8 @@ int main(void) {
     fcntl(ConnectionNumber(b.dpy), F_SETFD, FD_CLOEXEC);
     XSetErrorHandler(xerror);
     b.screen = DefaultScreen(b.dpy); b.root = RootWindow(b.dpy, b.screen);
-    b.width = DisplayWidth(b.dpy, b.screen);
+    /* Do not show a root-sized fallback: the root can span several monitors. */
+    b.width = 1;
     b.state_atom = XInternAtom(b.dpy, "_DWM_BAR_STATE", False);
     b.command_atom = XInternAtom(b.dpy, "_DWM_BAR_COMMAND", False);
     b.wm_atom = XInternAtom(b.dpy, "_NET_SUPPORTING_WM_CHECK", False);
@@ -654,8 +651,10 @@ int main(void) {
     if (!acquire_tray(&b)) { result = 1; goto cleanup; }
     XSelectInput(b.dpy, b.root, PropertyChangeMask | StructureNotifyMask);
     read_workspace(&b);
-    XMapRaised(b.dpy, b.win);
-    send_command(&b, 2, (long)b.win, b.panels[0].id);
+    if (b.panels[0].width > 1) {
+        XMapRaised(b.dpy, b.win);
+        send_command(&b, 2, (long)b.win, b.panels[0].id);
+    } else fprintf(stderr, "cui-bar: waiting for dwm's version 2 monitor IPC; rebuild and restart dwm if it does not appear\n");
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
