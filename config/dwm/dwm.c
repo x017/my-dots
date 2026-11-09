@@ -1736,6 +1736,12 @@ void configurerequest(XEvent *e) {
         c->oldh = c->h;
         c->h = ev->height;
       }
+      /* Floating clients normally control their geometry. A fixed-size client
+       * must not be stretched by a later ConfigureRequest, however. */
+      if (c->isfixed && !c->isfullscreen) {
+        c->w = c->minw;
+        c->h = c->minh;
+      }
       if ((c->x + c->w) > m->mx + m->mw && c->isfloating)
         c->x = m->mx + (m->mw / 2 - WIDTH(c) / 2); /* center in x direction */
       if ((c->y + c->h) > m->my + m->mh && c->isfloating)
@@ -2173,6 +2179,21 @@ void killclient(const Arg *arg) {
   closeclient(selmon->sel);
 }
 
+/* Keep ICCCM fixed-size clients at their advertised client dimensions; an
+ * explicit fullscreen request always takes precedence until it is exited. */
+static void initialclientgeometry(Client *c) {
+  if (c->isfixed && c->isfullscreen)
+    c->oldstate = 1;
+  if (!c->isfullscreen) {
+    if (c->isfixed) {
+      c->w = c->oldw = c->minw;
+      c->h = c->oldh = c->minh;
+    }
+    c->x = c->mon->mx + (c->mon->mw - WIDTH(c)) / 2;
+    c->y = c->mon->my + (c->mon->mh - HEIGHT(c)) / 2;
+  }
+}
+
 void manage(Window w, XWindowAttributes *wa) {
   Client *c, *t = NULL;
   Window trans = None;
@@ -2211,8 +2232,7 @@ void manage(Window w, XWindowAttributes *wa) {
   updatewindowtype(c);
   updatesizehints(c);
   updatewmhints(c);
-  c->x = c->mon->mx + (c->mon->mw - WIDTH(c)) / 2;
-  c->y = c->mon->my + (c->mon->mh - HEIGHT(c)) / 2;
+  initialclientgeometry(c);
   XSelectInput(dpy, w,
                EnterWindowMask | FocusChangeMask | PropertyChangeMask |
                    StructureNotifyMask);
@@ -2365,8 +2385,8 @@ void propertynotify(XEvent *e) {
     grabkeys();
     return;
   }
-  if (ev->state == PropertyDelete)
-    return; /* ignore */
+  if (ev->state == PropertyDelete && ev->atom != XA_WM_NORMAL_HINTS)
+    return; /* normal-hint removal must also invalidate the cached constraints */
   else if ((c = wintoclient(ev->window))) {
     switch (ev->atom) {
     default:
@@ -2376,9 +2396,25 @@ void propertynotify(XEvent *e) {
           (c->isfloating = (wintoclient(trans)) != NULL))
         arrange(c->mon);
       break;
-    case XA_WM_NORMAL_HINTS:
-      c->hintsvalid = 0;
+    case XA_WM_NORMAL_HINTS: {
+      int wasfloating = c->isfloating;
+      updatesizehints(c);
+      if (c->isfixed && c->isfullscreen) {
+        /* Keep explicit fullscreen, but restore the fixed client as floating. */
+        c->oldstate = 1;
+      } else if (c->isfixed) {
+        int x = c->x, y = c->y;
+        c->isfloating = 1;
+        if (!wasfloating) {
+          x = c->mon->wx + (c->mon->ww - c->minw - 2 * c->bw) / 2;
+          y = c->mon->wy + (c->mon->wh - c->minh - 2 * c->bw) / 2;
+        }
+        resize(c, x, y, c->minw, c->minh, 0);
+        if (!wasfloating)
+          arrange(c->mon);
+      }
       break;
+    }
     case XA_WM_HINTS:
       updatewmhints(c);
       publishbar();
@@ -2792,8 +2828,8 @@ void setfullscreen(Client *c, int fullscreen) {
     c->bw = c->oldbw;
     c->x = c->oldx;
     c->y = c->oldy;
-    c->w = c->oldw;
-    c->h = c->oldh;
+    c->w = c->isfixed ? c->minw : c->oldw;
+    c->h = c->isfixed ? c->minh : c->oldh;
     resizeclient(c, c->x, c->y, c->w, c->h);
     arrange(c->mon);
   }

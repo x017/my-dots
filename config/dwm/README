@@ -41,6 +41,16 @@ Configuration
 The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
 
+Fixed-size application windows
+------------------------------
+Applications that advertise equal minimum and maximum dimensions through X11
+size hints open floating at those dimensions instead of being stretched by the
+tiling layout. This also applies if the application publishes its fixed-size
+hints after opening. Explicit fullscreen requests still work; exiting fullscreen
+restores the fixed size. Applications that do not advertise fixed-size X11
+hints remain governed by the normal tiling rules. Rebuild and restart dwm to
+apply this behavior.
+
 Window switcher
 ---------------
 Alt+Tab opens a fast, most-recently-used list of windows on the current
