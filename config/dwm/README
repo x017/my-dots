@@ -46,3 +46,14 @@ Configuration
 -------------
 The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
+
+Window switcher
+---------------
+Alt+Tab opens a fast, most-recently-used list of windows on the current
+monitor, including windows on other tags. Keep Alt held and press Tab (or
+Shift+Tab) to cycle; release Alt or press Enter to select. Escape cancels.
+While the switcher is open, press 1–9 to preview/filter that tag's windows,
+or 0 to show all tags. Selecting a hidden window switches to its tag. The
+popup shows window titles rather than live thumbnails and uses the Quickshell
+palette and monospace font. Alt+Ctrl+Tab retains the previous-tag shortcut.
+Rebuild and restart dwm after changing the configuration.

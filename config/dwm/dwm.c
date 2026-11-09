@@ -197,6 +197,7 @@ struct Systray {
 };
 
 /* function declarations */
+static void alttab(const Arg *arg);
 static void applyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h,
                           int interact);
@@ -354,6 +355,104 @@ struct NumTags {
 };
 
 /* function implementations */
+/* Switch between this monitor's windows, including windows on hidden tags. */
+void alttab(const Arg *arg) {
+  Monitor *m = selmon;
+  Client *c;
+  Window *wins, *list, popup;
+  XSetWindowAttributes wa;
+  XEvent ev;
+  Drw *d;
+  Clr *normal, *selected, *head;
+  const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
+  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
+  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
+  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  unsigned int n = 0, count = 0, i, row, start, visible, filter = 0;
+  int choice, done = 0, accept = 0, width, height, rh, header;
+  char text[512], tagtext[128];
+  KeySym key;
+
+  for (c = m->stack; c; c = c->snext) n++;
+  if (!n) return;
+  wins = ecalloc(n, sizeof(Window)); list = ecalloc(n, sizeof(Window));
+  for (c = m->stack, i = 0; c; c = c->snext) wins[i++] = c->win;
+  if (XGrabKeyboard(dpy, root, False, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess) {
+    free(wins); free(list); return;
+  }
+  rh = MAX(28, bh + 4); header = 2 * rh;
+  width = MAX(1, MIN(640, m->mw - 20));
+  visible = MAX(1, MIN((int)n, MAX(1, (m->mh - header - 20) / rh)));
+  height = header + visible * rh;
+  wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
+  wa.event_mask = ExposureMask;
+  popup = XCreateWindow(dpy, root, m->mx + (m->mw - width) / 2, m->my + (m->mh - height) / 2,
+                        width, height, 1, DefaultDepth(dpy, screen), CopyFromParent,
+                        DefaultVisual(dpy, screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
+  d = drw_create(dpy, screen, root, width, height);
+  drw_fontset_create(d, font, LENGTH(font));
+  normal = drw_scm_create(d, nc, 3); selected = drw_scm_create(d, sc, 3); head = drw_scm_create(d, hc, 3);
+  XSetWindowBorder(dpy, popup, head[ColBorder].pixel); XMapRaised(dpy, popup);
+  choice = n > 1 ? (arg->i < 0 ? n - 1 : 1) : 0;
+  while (!done && running) {
+    count = 0;
+    for (i = 0; i < n; i++) {
+      c = wintoclient(wins[i]);
+      if (c && c->mon == m && (!filter || (c->tags & filter))) list[count++] = wins[i];
+    }
+    if (choice >= (int)count) choice = count ? count - 1 : 0;
+    start = count && choice >= (int)visible ? choice - visible + 1 : 0;
+    drw_setscheme(d, head); drw_rect(d, 0, 0, width, height, 1, 0);
+    drw_text(d, 0, 0, width, rh, 12, "SWITCH WINDOWS   /   Alt+Tab  Shift+Tab  Esc", 0);
+    tagtext[0] = '\0';
+    for (i = 0; i < LENGTH(tags); i++) {
+      char part[16];
+      snprintf(part, sizeof part, "%s%u%s ", filter == (1U << i) ? "[" : "", i + 1, filter == (1U << i) ? "]" : "");
+      strncat(tagtext, part, sizeof(tagtext) - strlen(tagtext) - 1);
+    }
+    snprintf(text, sizeof text, "TAGS  %s  0: all", tagtext);
+    drw_text(d, 0, rh, width, rh, 12, text, 0);
+    for (row = 0; row < visible; row++) {
+      i = start + row;
+      drw_setscheme(d, i < count && (int)i == choice ? selected : normal);
+      if (i < count && (c = wintoclient(list[i]))) {
+        unsigned int t;
+        tagtext[0] = '\0';
+        for (t = 0; t < LENGTH(tags); t++) if (c->tags & (1U << t)) {
+          char part[8]; snprintf(part, sizeof part, "%u ", t + 1);
+          strncat(tagtext, part, sizeof(tagtext) - strlen(tagtext) - 1);
+        }
+        snprintf(text, sizeof text, "%-12s %s", tagtext, c->name);
+      } else snprintf(text, sizeof text, "%s", count ? "" : "No windows on this tag");
+      drw_text(d, 0, header + row * rh, width, rh, 12, text, 0);
+    }
+    drw_map(d, popup, 0, 0, width, height);
+    XNextEvent(dpy, &ev);
+    if (ev.type == KeyPress) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Escape) done = 1;
+      else if (key == XK_Return || key == XK_KP_Enter) done = accept = 1;
+      else if ((key == XK_Tab || key == XK_ISO_Left_Tab || key == XK_Down || key == XK_Up) && count) {
+        int reverse = key == XK_Up || key == XK_ISO_Left_Tab || (ev.xkey.state & ShiftMask);
+        choice = (choice + (reverse ? count - 1 : 1)) % count;
+      } else if (key >= XK_0 && key <= XK_9) {
+        filter = key == XK_0 ? 0 : 1U << (key - XK_1); choice = 0;
+      }
+    } else if (ev.type == KeyRelease) {
+      key = XLookupKeysym(&ev.xkey, 0);
+      if (key == XK_Alt_L || key == XK_Alt_R) done = accept = 1;
+    } else if (ev.type != Expose && ev.type != EnterNotify && ev.type != FocusIn && handler[ev.type]) handler[ev.type](&ev);
+  }
+  c = accept && count ? wintoclient(list[choice]) : NULL;
+  XDestroyWindow(dpy, popup); XUngrabKeyboard(dpy, CurrentTime);
+  drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3); drw_free(d);
+  free(wins); free(list);
+  if (c && c->mon == selmon) {
+    if (!ISVISIBLE(c)) { Arg a = {.ui = c->tags}; view(&a); }
+    focus(c); restack(selmon);
+  }
+}
+
 void applyrules(Client *c) {
   const char *class, *instance;
   unsigned int i;
