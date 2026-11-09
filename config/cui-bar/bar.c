@@ -32,6 +32,7 @@
 #include "../dwm/dashboard/desktop_controls.h"
 #include "island.h"
 #include "notification_live.h"
+#include "album_fetch.h"
 
 #define HEIGHT 28
 #define TOP_GAP 8
@@ -76,6 +77,8 @@ typedef struct {
     Window popup; int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
+    cui_texture album_texture; char album_url[1024]; int album_fd; unsigned int album_serial;
+    float music_seek; int music_seek_pending; char seek_player[128], seek_track[256], seek_title[192], seek_artist[160];
     int live_fd, live_seen, live_active_seen, live_generation, live_texture_generation;
     double live_until, live_started; LiveNotice live_notice; cui_texture live_texture;
     struct { char path[512]; cui_texture texture; } notice_images[ISLAND_NOTICES];
@@ -280,6 +283,23 @@ static int start_island(Bar *b) {
     fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
     b->island_fd = fd[0]; return 1;
 }
+static int start_album(Bar *b) {
+    int fd[2]; pid_t child;
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fd) < 0) return 0;
+    fcntl(fd[0], F_SETFD, FD_CLOEXEC); fcntl(fd[1], F_SETFD, FD_CLOEXEC);
+    child = fork();
+    if (!child) {
+        close(fd[0]); close(ConnectionNumber(b->dpy));
+        if (b->worker_fd >= 0) close(b->worker_fd);
+        if (b->island_fd >= 0) close(b->island_fd);
+        if (b->live_fd >= 0) close(b->live_fd);
+        album_worker(fd[1]);
+    }
+    close(fd[1]);
+    if (child < 0) { close(fd[0]); return 0; }
+    fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
+    b->album_fd = fd[0]; return 1;
+}
 static int start_live(Bar *b) {
     int fd[2]; pid_t child;
     if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fd) < 0) return 0;
@@ -296,12 +316,18 @@ static int start_live(Bar *b) {
     fcntl(fd[0], F_SETFL, fcntl(fd[0], F_GETFL) | O_NONBLOCK);
     b->live_fd = fd[0]; return 1;
 }
-static void island_request(Bar *b, int action, int id) {
-    IslandRequest request = {action, id};
-    if (b->island_fd >= 0 && send(b->island_fd, &request, sizeof request, MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof request)
-        fprintf(stderr, "cui-bar: could not queue island action\n");
+static int island_send(Bar *b, const IslandRequest *request) {
+    if (b->island_fd >= 0 && send(b->island_fd, request, sizeof *request, MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof *request) return 1;
+    fprintf(stderr, "cui-bar: could not queue island action\n"); return 0;
 }
-static void island_action(Bar *b, int action) { island_request(b, action, 0); }
+static void island_request(Bar *b, int action, int id) {
+    IslandRequest request = {.action = action, .id = id}; island_send(b, &request);
+}
+static void island_action(Bar *b, int action) {
+    IslandRequest request = {.action = action};
+    copystr(request.player, sizeof request.player, b->island.player);
+    island_send(b, &request);
+}
 static void next_keyboard_layout(Bar *b) {
     XkbStateRec state; XkbDescPtr keyboard = XkbGetMap(b->dpy, 0, XkbUseCoreKbd);
     if (!keyboard) return;
@@ -666,6 +692,74 @@ static cui_texture notice_image(cui_ctx *ui, Bar *b, int i, const char *path) {
     }
     return b->notice_images[i].texture;
 }
+/* Only local file URIs are read. Remote artwork requires a separate fetcher. */
+static int album_path(const char *url, char *path, size_t cap) {
+    size_t n = 0; const char *p;
+    if (strncmp(url, "file://", 7)) return 0;
+    p = url + 7;
+    if (!strncmp(p, "localhost/", 10)) p += 9;
+    if (*p != '/') return 0;
+    while (*p) {
+        unsigned char c = (unsigned char)*p++;
+        if (c == '%') {
+            int a, b;
+            if (!p[0] || !p[1] || (a = island_hex(p[0])) < 0 || (b = island_hex(p[1])) < 0) return 0;
+            c = (unsigned char)(a * 16 + b); p += 2;
+        }
+        if (!c || n + 1 >= cap) return 0;
+        path[n++] = (char)c;
+    }
+    path[n] = 0; return n > 0;
+}
+static void refresh_album_art(Bar *b) {
+    char path[1024]; struct stat st;
+    if (!strcmp(b->album_url, b->island.art_url)) return;
+    if (b->album_texture) cui_image_destroy(b->ui, b->album_texture);
+    b->album_texture = 0;
+    copystr(b->album_url, sizeof b->album_url, b->island.art_url);
+    b->album_serial++;
+    if (album_path(b->album_url, path, sizeof path) && !stat(path, &st) && S_ISREG(st.st_mode) && st.st_size > 0 && st.st_size <= 2 * 1024 * 1024)
+        b->album_texture = cui_image_load(b->ui, path, NULL, NULL);
+    else if (!strncmp(b->album_url, "https://", 8) && b->album_fd >= 0) {
+        ArtRequest request = {.serial = b->album_serial};
+        copystr(request.url, sizeof request.url, b->album_url);
+        if (send(b->album_fd, &request, sizeof request, MSG_DONTWAIT | MSG_NOSIGNAL) != sizeof request)
+            fprintf(stderr, "cui-bar: unable to queue album artwork\n");
+    }
+}
+static void music_time(double seconds, char *out, size_t cap) {
+    int t = (int)seconds;
+    if (t >= 3600) snprintf(out, cap, "%d:%02d:%02d", t / 3600, (t / 60) % 60, t % 60);
+    else snprintf(out, cap, "%d:%02d", t / 60, t % 60);
+}
+static void music_progress(cui_ctx *ui, Bar *b) {
+    const IslandFrame *f = &b->island; char left[24], right[24];
+    if (b->music_seek_pending && (strcmp(b->seek_player, f->player) || strcmp(b->seek_track, f->track_id) ||
+        strcmp(b->seek_title, f->title) || strcmp(b->seek_artist, f->artist))) b->music_seek_pending = 0;
+    if (!b->music_seek_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) b->music_seek = (float)f->position;
+    if (f->duration > 0 && f->position_available) {
+        music_time(b->music_seek, left, sizeof left); music_time(f->duration, right, sizeof right);
+        if (cui_slider(ui, "##track-position", &b->music_seek, 0, (float)f->duration,
+                       .step = 1, .width = CUI_FILL, .disabled = !f->player[0])) {
+            if (!b->music_seek_pending) {
+                copystr(b->seek_player, sizeof b->seek_player, f->player); copystr(b->seek_track, sizeof b->seek_track, f->track_id);
+                copystr(b->seek_title, sizeof b->seek_title, f->title); copystr(b->seek_artist, sizeof b->seek_artist, f->artist);
+            }
+            b->music_seek_pending = 1;
+        }
+        cui_row(ui, .width = CUI_FILL) {
+            cui_text(ui, left, .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+            cui_spacer(ui);
+            cui_text(ui, right, .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+        }
+        if (b->music_seek_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) {
+            IslandRequest req = {.action = ISLAND_SEEK, .id = (int)b->music_seek};
+            copystr(req.player, sizeof req.player, b->seek_player); copystr(req.track_id, sizeof req.track_id, b->seek_track);
+            copystr(req.title, sizeof req.title, b->seek_title); copystr(req.artist, sizeof req.artist, b->seek_artist);
+            if (island_send(b, &req)) b->music_seek_pending = 0;
+        }
+    } else { b->music_seek_pending = 0; cui_secondary(ui, "Track position unavailable"); }
+}
 static int live_matches(const Bar *b, const IslandNotice *n) {
     return b->live_seen && !strcmp(b->live_notice.app, n->app) && !strcmp(b->live_notice.title, n->title) && !strcmp(b->live_notice.body, n->body);
 }
@@ -688,12 +782,24 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
             if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
         }
         if (b->island.player_available) cui_card(ui, .width = CUI_FILL, .pad = 14, .gap = 8) {
-            cui_text(ui, b->island.title, .font = CUI_FONT_MEDIUM, .size = 14);
-            if (b->island.artist[0]) cui_secondary(ui, b->island.artist);
+            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 10) {
+                if (b->album_texture) cui_image(ui, b->album_texture, .width = CUI_PX(48), .height = CUI_PX(48), .radius = 6);
+                else cui_avatar(ui, b->island.title, .size = 48);
+                cui_column(ui, .width = CUI_FILL, .gap = 3) {
+                    cui_text(ui, b->island.title, .font = CUI_FONT_MEDIUM, .size = 14);
+                    if (b->island.artist[0]) cui_secondary(ui, b->island.artist);
+                }
+            }
+            music_progress(ui, b);
             cui_row(ui, .gap = 8) {
                 if (cui_button(ui, "Previous", .icon = CUI_ICON_SKIP_BACK, .size = CUI_SIZE_SM)) island_action(b, ISLAND_PREVIOUS);
                 if (cui_button(ui, b->island.playing ? "Pause" : "Play", .icon = b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY, .size = CUI_SIZE_SM)) island_action(b, ISLAND_TOGGLE);
                 if (cui_button(ui, "Next", .icon = CUI_ICON_SKIP_FORWARD, .size = CUI_SIZE_SM)) island_action(b, ISLAND_NEXT);
+            }
+            cui_row(ui, .gap = 8) {
+                if (cui_button(ui, b->island.shuffle ? "Shuffle on" : "Shuffle off", .size = CUI_SIZE_SM, .disabled = !b->island.player[0])) island_action(b, ISLAND_SHUFFLE);
+                { char loop[48]; snprintf(loop, sizeof loop, "Repeat: %s", b->island.loop[0] ? b->island.loop : "--");
+                  if (cui_button(ui, loop, .size = CUI_SIZE_SM, .disabled = !b->island.player[0] || !b->island.loop[0])) island_action(b, ISLAND_LOOP); }
             }
         }
         if (b->live_seen && b->live_until > island_now()) {
@@ -915,6 +1021,10 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
     icon(ui, controls + 20, 7, 14, b->island.player_available ? white : muted, b->island.playing ? CUI_ICON_PAUSE : CUI_ICON_PLAY);
     icon(ui, controls + 41, 8, 12, b->island.player_available ? white : muted, CUI_ICON_SKIP_FORWARD);
     text_left = x + (w >= 120 ? 45 : 27);
+    if (w >= 190 && b->album_texture && b->island.player_available) {
+        cui_draw_image(ui, b->album_texture, (cui_rect){text_left, 5, 18, 18}, (cui_rect){0, 0, 1, 1}, CUI_CORNERS(4), CUI_RGB(0xffffff));
+        text_left += 23;
+    }
     if (w >= 160 && b->island.player_available && b->island.playing) {
         int i, tick = (int)(now * 8);
         for (i = 0; i < 3; i++) {
@@ -942,6 +1052,13 @@ static void paint_island(cui_ctx *ui, const Bar *b, Layout l) {
         cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset, 8}, white, text, -1);
         if (scrolling) cui_draw_text(ui, CUI_FONT_MONO, 11, (cui_vec2){text_left - offset + cycle, 8}, white, text, -1);
         cui_pop_clip(ui);
+        if (b->island.player_available && b->island.duration > 0 && b->island.position_available) {
+            float fraction = (float)(b->island.position / b->island.duration);
+            if (fraction < 0) fraction = 0;
+            if (fraction > 1) fraction = 1;
+            cui_draw_rect(ui, (cui_rect){text_left, 23, text_width, 1}, CUI_CORNERS(0), CUI_RGB(0x363a40));
+            cui_draw_rect(ui, (cui_rect){text_left, 23, text_width * fraction, 1}, CUI_CORNERS(0), white);
+        }
     }
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
@@ -1192,7 +1309,7 @@ int main(void) {
     Bar b = {0}; XSetWindowAttributes attr; WorkerFrame incoming; size_t received = 0;
     time_t next_stats = 0; int dirty = 1, i, result = 0;
     cui_renderer_iface iface;
-    b.worker_fd = b.island_fd = b.live_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
+    b.worker_fd = b.island_fd = b.live_fd = b.album_fd = -1; b.cpu = b.memory = b.temperature = b.battery = -1;
     b.tag_count = 9; strcpy(b.clock, "--:--"); strcpy(b.language, "--");
     signal(SIGINT, terminate); signal(SIGTERM, terminate); signal(SIGCHLD, SIG_IGN); signal(SIGPIPE, SIG_IGN);
     b.dpy = XOpenDisplay(NULL);
@@ -1234,6 +1351,7 @@ int main(void) {
     if (!start_worker(&b)) fprintf(stderr, "cui-bar: could not start service worker\n");
     if (!start_island(&b)) fprintf(stderr, "cui-bar: could not start island worker\n");
     if (!start_live(&b)) fprintf(stderr, "cui-bar: could not start live notification monitor\n");
+    if (!start_album(&b)) fprintf(stderr, "cui-bar: could not start album artwork worker\n");
     while (running) {
         fd_set fds; int xfd = ConnectionNumber(b.dpy), maxfd = xfd, ready;
         struct timeval timeout; time_t now = time(NULL);
@@ -1254,6 +1372,7 @@ int main(void) {
         if (b.worker_fd >= 0) { FD_SET(b.worker_fd, &fds); if (b.worker_fd > maxfd) maxfd = b.worker_fd; }
         if (b.island_fd >= 0) { FD_SET(b.island_fd, &fds); if (b.island_fd > maxfd) maxfd = b.island_fd; }
         if (b.live_fd >= 0) { FD_SET(b.live_fd, &fds); if (b.live_fd > maxfd) maxfd = b.live_fd; }
+        if (b.album_fd >= 0) { FD_SET(b.album_fd, &fds); if (b.album_fd > maxfd) maxfd = b.album_fd; }
         timeout.tv_sec = next_stats > now ? next_stats - now : 0; timeout.tv_usec = 0;
         if ((b.island.playing || b.island_notice_until > island_now()) && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 33333; }
         else if (b.popup && timeout.tv_sec > 0) { timeout.tv_sec = 0; timeout.tv_usec = 250000; }
@@ -1261,6 +1380,19 @@ int main(void) {
         if (ready == 0 && b.popup) b.popup_dirty = 1;
         if (ready == 0 && (b.island.playing || b.island_notice_until > island_now())) dirty = 1;
         if (ready < 0 && errno != EINTR) { fprintf(stderr, "cui-bar: select: %s\n", strerror(errno)); result = 1; break; }
+        if (ready > 0 && b.album_fd >= 0 && FD_ISSET(b.album_fd, &fds)) {
+            ArtReply reply; ssize_t n = recv(b.album_fd, &reply, sizeof reply, 0);
+            if (n == sizeof reply) {
+                reply.path[sizeof reply.path - 1] = 0;
+                if (reply.ok && reply.serial == b.album_serial) {
+                    if (b.album_texture) cui_image_destroy(b.ui, b.album_texture);
+                    b.album_texture = cui_image_load(b.ui, reply.path, NULL, NULL); dirty = 1;
+                }
+                if (reply.path[0]) unlink(reply.path);
+            } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
+                close(b.album_fd); b.album_fd = -1;
+            }
+        }
         if (ready > 0 && b.live_fd >= 0 && FD_ISSET(b.live_fd, &fds)) {
             LiveNotice event; ssize_t n = recv(b.live_fd, &event, sizeof event, 0);
             if (n == sizeof event) {
@@ -1288,7 +1420,7 @@ int main(void) {
                         b.island_notice_until = island_now() + 3; b.island_live = 1;
                     }
                 }
-                b.island = next; b.island_initialized = 1; dirty = 1;
+                b.island = next; refresh_album_art(&b); b.island_initialized = 1; dirty = 1;
             } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
                 close(b.island_fd); b.island_fd = -1; memset(&b.island, 0, sizeof b.island); dirty = 1;
             }
@@ -1345,11 +1477,13 @@ cleanup:
     if (b.worker_fd >= 0) close(b.worker_fd);
     if (b.island_fd >= 0) close(b.island_fd);
     if (b.live_fd >= 0) close(b.live_fd);
+    if (b.album_fd >= 0) close(b.album_fd);
     if (b.selection && XGetSelectionOwner(b.dpy, b.selection) == b.win) XSetSelectionOwner(b.dpy, b.selection, None, CurrentTime);
     for (i = 0; i < b.count; i++) {
         XReparentWindow(b.dpy, b.icons[i].win, b.root, 0, 0);
         XRemoveFromSaveSet(b.dpy, b.icons[i].win);
     }
+    if (b.ui && b.album_texture) cui_image_destroy(b.ui, b.album_texture);
     if (b.ui) cui_destroy(b.ui);
     if (b.renderer) cui_sw_destroy(b.renderer);
     if (b.gc) XFreeGC(b.dpy, b.gc);

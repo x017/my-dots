@@ -51,8 +51,14 @@ second for interaction and animations. Narrow screens hide the left stats
 when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
 The island uses `playerctl` and an MPRIS-compatible player for track metadata
-and previous/play-pause/next controls. Long titles scroll, and the small bars
-animate while playing. Notification alerts briefly replace the track text for
+and previous/play-pause/next controls. It shows a slim position indicator and
+album art when the player provides duration and artwork. Click the island for
+a seek slider, elapsed/total time, shuffle and repeat controls; support for
+these actions depends on the player. Local PNG/JPEG artwork is loaded directly;
+HTTPS artwork is fetched asynchronously with `curl` into a private temporary
+directory, with a size and timeout limit, and removed afterward. HTTP and other
+URI schemes are not fetched. If artwork or `curl` is unavailable, initials
+are shown instead. Long titles scroll, and the small bars animate while playing. Notification alerts briefly replace the track text for
 three seconds before it returns. Clicking the bell or track opens a panel with media
 controls and recent notifications directly beneath the island (or right-aligned
 when the island does not fit). The island worker polls roughly every 500 ms,

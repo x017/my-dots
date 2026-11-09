@@ -6,11 +6,12 @@
 typedef struct { int id; char app[96], title[192], body[384], icon_path[512]; } IslandNotice;
 typedef struct {
     int player_available, playing, notifications_available, history_count, active_count, notice_count;
-    char artist[160], title[192];
+    char artist[160], title[192], art_url[1024], player[128], track_id[256];
+    double duration, position; int position_available; char loop[16]; int shuffle;
     IslandNotice notices[ISLAND_NOTICES];
 } IslandFrame;
-enum { ISLAND_PREVIOUS = 1, ISLAND_TOGGLE, ISLAND_NEXT, ISLAND_DISMISS };
-typedef struct { int action, id; } IslandRequest;
+enum { ISLAND_PREVIOUS = 1, ISLAND_TOGGLE, ISLAND_NEXT, ISLAND_DISMISS, ISLAND_SEEK, ISLAND_SHUFFLE, ISLAND_LOOP };
+typedef struct { int action, id; char player[128], track_id[256], title[192], artist[160]; } IslandRequest;
 
 /* Minimal bounded JSON token tree for busctl's typed variant output. */
 typedef struct { int start, end, parent, next; } IslandToken;
@@ -131,18 +132,42 @@ static void island_history(const char *json, IslandFrame *frame) {
     }
     free(t);
 }
+/* Split metadata fields without collapsing empty tab-separated fields. */
+static void island_metadata(char *out, IslandFrame *frame) {
+    char *f[9] = {0}, *p = out, *end; int i; double n;
+    for (i = 0; i < 9; i++) {
+        f[i] = p; end = strchr(p, '\t');
+        if (!end) break;
+        *end = 0; p = end + 1;
+    }
+    if (i < 8) return;
+    f[8][strcspn(f[8], "\r\n")] = 0;
+    copystr(frame->artist, sizeof frame->artist, f[0]);
+    copystr(frame->title, sizeof frame->title, f[1]);
+    copystr(frame->art_url, sizeof frame->art_url, f[2]);
+    copystr(frame->player, sizeof frame->player, f[5]);
+    copystr(frame->track_id, sizeof frame->track_id, f[6]);
+    copystr(frame->loop, sizeof frame->loop, f[7]);
+    frame->shuffle = !strcasecmp(f[8], "true") || !strcmp(f[8], "1");
+    errno = 0; n = strtod(f[3], &end);
+    if (!errno && end != f[3] && !*end && isfinite(n) && n > 0 && n <= 604800000000.0) frame->duration = n / 1000000.0;
+    errno = 0; n = strtod(f[4], &end);
+    if (!errno && end != f[4] && !*end && isfinite(n) && n >= 0 && n <= 604800000000.0) {
+        frame->position = n / 1000000.0; frame->position_available = 1;
+        if (frame->duration > 0 && frame->position > frame->duration) frame->position = frame->duration;
+    }
+}
 static void island_sample(IslandFrame *frame) {
-    char out[1024], *line, *next; char *json;
+    char out[4096]; char *json;
     char *status[] = {"playerctl", "status", NULL};
-    char *metadata[] = {"playerctl", "metadata", "--format", "{{artist}}\t{{title}}", NULL};
+    char *metadata[] = {"playerctl", "metadata", "--format", "{{artist}}\t{{title}}\t{{mpris:artUrl}}\t{{mpris:length}}\t{{position}}\t{{playerInstance}}\t{{mpris:trackid}}\t{{loop}}\t{{shuffle}}", NULL};
     char *count[] = {"dunstctl", "count", NULL};
     char *history[] = {"dunstctl", "history", NULL};
     memset(frame, 0, sizeof *frame);
     if (!run_command(status, NULL, out, sizeof out, 800) && (!strncmp(out, "Playing", 7) || !strncmp(out, "Paused", 6))) {
         frame->player_available = 1; frame->playing = !strncmp(out, "Playing", 7);
         if (!run_command(metadata, NULL, out, sizeof out, 800)) {
-            line = out; next = strchr(line, '\t');
-            if (next) { *next++ = 0; next[strcspn(next, "\r\n")] = 0; copystr(frame->artist, sizeof frame->artist, line); copystr(frame->title, sizeof frame->title, next); }
+            island_metadata(out, frame);
         }
         if (!frame->title[0]) copystr(frame->title, sizeof frame->title, "Unknown track");
     }
@@ -178,8 +203,21 @@ static void island_worker(int fd) {
         if (ready && (p.revents & POLLIN)) {
             if (recv(fd, &request, sizeof request, 0) != sizeof request) break;
             if (request.action >= ISLAND_PREVIOUS && request.action <= ISLAND_NEXT) {
-                char *argv[] = {"playerctl", request.action == ISLAND_PREVIOUS ? "previous" : request.action == ISLAND_TOGGLE ? "play-pause" : "next", NULL};
-                run_command(argv, NULL, out, sizeof out, 800);
+                char *command = request.action == ISLAND_PREVIOUS ? "previous" : request.action == ISLAND_TOGGLE ? "play-pause" : "next";
+                char *selected[] = {"playerctl", "--player", request.player, command, NULL};
+                char *fallback[] = {"playerctl", command, NULL};
+                run_command(request.player[0] ? selected : fallback, NULL, out, sizeof out, 800);
+            } else if ((request.action == ISLAND_SHUFFLE || request.action == ISLAND_LOOP) && request.player[0] && !strcmp(request.player, frame.player)) {
+                char *command = request.action == ISLAND_SHUFFLE ? "shuffle" : "loop";
+                char *value = request.action == ISLAND_SHUFFLE ? "toggle" : !strcasecmp(frame.loop, "None") ? "Playlist" : !strcasecmp(frame.loop, "Playlist") ? "Track" : "None";
+                char *argv[] = {"playerctl", "--player", request.player, command, value, NULL};
+                if (run_command(argv, NULL, out, sizeof out, 800)) fprintf(stderr, "cui-bar: player option is unsupported\n");
+            } else if (request.action == ISLAND_SEEK && request.id >= 0 && frame.player_available && frame.duration > 0 &&
+                       request.id <= frame.duration && frame.player[0] && !strcmp(request.player, frame.player) &&
+                       !strcmp(request.track_id, frame.track_id) && !strcmp(request.title, frame.title) && !strcmp(request.artist, frame.artist)) {
+                char seconds[32]; char *argv[] = {"playerctl", "--player", request.player, "position", seconds, NULL};
+                snprintf(seconds, sizeof seconds, "%d", request.id);
+                if (run_command(argv, NULL, out, sizeof out, 800)) fprintf(stderr, "cui-bar: player seek failed or is unsupported\n");
             } else if (request.action == ISLAND_DISMISS && request.id > 0) {
                 char id[32]; char *argv[] = {"dunstctl", "history-rm", id, NULL};
                 snprintf(id, sizeof id, "%d", request.id);
