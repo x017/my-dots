@@ -1,0 +1,48 @@
+Standalone CUI bar
+==================
+This is a separate X11/CUI program, inspired by the Waybar configuration in
+../waybar. The old dwm bar and its tray are removed. The bar uses a small X11
+property/message protocol with this dwm build to display and switch workspaces
+on the first monitor and reserve space. It does not require the CUI dashboard.
+
+Build from the repository root (CMake, Git, a C compiler and X11 development
+headers/libraries required):
+
+    cmake -S config/cui-bar -B config/cui-bar/build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+    cmake --build config/cui-bar/build
+    cmake --install config/cui-bar/build
+
+Then rebuild/install dwm and restart it. If you want the CUI dashboard too,
+build dwm with CUI=1 as described in ../dwm/README; otherwise use the normal
+make build. Ensure ~/.local/bin is in the PATH of the dwm session, not just
+an interactive terminal. dwm automatically launches `cui-bar` when installed,
+unless an X11 tray already exists or DWM_NO_CUI_BAR=1 is set. You can instead
+run `cui-bar` manually. It refuses to steal an existing tray's selection.
+Existing autostart files are not changed. Stop an old tray/bar before testing.
+
+The bar shows temperature, CPU, memory, battery, workspace numbers, volume,
+network state, Bluetooth state, clock, XEmbed tray icons, language, and lock.
+Stats and status come from /proc, /sys, nmcli, bluetoothctl, pactl and XKB.
+Service commands run in a separate worker, at most once every 10 seconds (and
+after audio actions), without blocking dwm or the bar's X event loop. CPU,
+memory and clock refresh every five seconds. A single-threaded software CUI
+renderer draws only after changes or refreshes; no continuously running GPU
+render loop is required. Narrow screens hide the left stats when space is
+needed. The first monitor is used; this version does not create multiple bars.
+
+Click a workspace to view it. Click volume for pavucontrol, right-click to
+mute, or scroll to adjust by 2%. Click network for nm-connection-editor,
+Bluetooth for blueman-manager, and lock for mel. Right-click network or
+Bluetooth to toggle the corresponding radio. These programs and the
+NetworkManager, BlueZ and PulseAudio/PipeWire services are optional but needed
+for their respective controls. Connection and device management is handled by
+those settings tools, not built into the bar. Dashboard shortcuts remain
+available separately. The built-in mono font can be overridden by setting
+CUI_BAR_FONT to a TrueType/OpenType font file before launching the bar.
+
+The tray implements legacy XEmbed icons, up to eight visible at once, fewer on narrow screens; it does
+not implement D-Bus StatusNotifierItem/AppIndicator icons. Some applications
+may therefore need an XEmbed mode or an additional SNI-to-XEmbed bridge. Tray
+icons remain separate application windows and their appearance is controlled
+by those applications. The software renderer currently requires a common
+little-endian 32-bit X11 visual; unsupported visuals report an error and exit.

@@ -33,15 +33,8 @@ the DISPLAY environment variable is set correctly, e.g.:
 
 (This will start dwm on display :1 of the host foo.bar.)
 
-In order to display status info in the bar, you can do something
-like this in your .xinitrc:
-
-    while xsetroot -name "`date` `uptime | sed 's/.*,//'`"
-    do
-    	sleep 1
-    done &
-    exec dwm
-
+The optional standalone CUI bar supplies its own status information; see
+"Standalone CUI bar" below. It does not read xsetroot status text.
 
 Configuration
 -------------
@@ -153,10 +146,9 @@ DWM_WALLPAPERS_DIR is set, the custom directory is not created automatically.
 Existing files, symlinks, directories and permissions are never overwritten
 or changed by first-run setup, including non-executable autostart files.
 Existing executable autostart scripts continue to run as before. If an
-existing autostart still contains the old hard-coded feh command or the XKB
-Win+Space option, those commands remain in effect and may conflict with the
-new wallpaper and keyboard behavior. Because the file is left untouched,
-those existing lines must be updated manually if you want the new behavior.
+existing autostart still contains the old hard-coded feh command, it can
+reset the wallpaper at login; update that line manually if needed. Existing
+Win+Space XKB settings are handled automatically as described above.
 See the preceding section for the replacements. feh writes ~/.fehbg only
 after a wallpaper is chosen; dwm does not create or overwrite it at startup.
 Dwm does not install dependencies or rebuild itself. Setup failures are
@@ -203,18 +195,14 @@ blueman-manager, and pavucontrol when installed. The standalone CUI build
 remains available for independent testing, but is not needed by the binding.
 Existing autostart files are not changed.
 
-CUI bar
--------
-The CUI=1 build also enables a CUI bar in dwm's own bar windows. It shows
-numbered tags (highlighted when selected), the layout, focused window title,
-and the existing X root-window status text on the selected monitor. The
-existing system tray is retained. Tag mouse bindings work as before; a left
-click on the status area opens the native control center. Alt+B toggles the
-bar. A status provider is still needed for a clock or system information;
-the bar does not spawn one or poll services itself. Status2d formatting is
-stripped rather than rendered by CUI.
+Standalone CUI bar
+------------------
+The old dwm bar and tray have been removed. The replacement is a separate,
+lightweight CUI/X11 application under ../cui-bar. It has its own XEmbed tray,
+and communicates with dwm only for first-monitor workspace state, workspace
+clicks, and reserving screen space. It does not depend on the dashboard
+build. When `cui-bar` is on dwm's PATH, dwm starts it automatically if no
+other X11 tray is running; existing autostart files are left unchanged. Set
+DWM_NO_CUI_BAR=1 before starting dwm to disable automatic launch.
 
-The bar draws only when dwm requests a redraw, using one single-threaded CUI
-software renderer shared across monitors. There is no bar daemon, GPU loop,
-or periodic redraw. On unsupported X11 pixel formats it falls back to dwm's
-original bar. Building without CUI=1 keeps the original bar default (hidden).
+See ../cui-bar/README for build instructions, controls, and limitations.

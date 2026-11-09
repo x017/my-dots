@@ -3,12 +3,6 @@
 /* appearance */
 static const unsigned int borderpx = 1; /* border pixel of windows */
 static const unsigned int snap = 32;    /* snap pixel */
-#ifdef DWM_CUI
-static const int showbar = 1;           /* CUI bar enabled on CUI builds */
-#else
-static const int showbar = 0;           /* original default without CUI */
-#endif
-static const int topbar = 1;            /* 0 means bottom bar */
 static const int startwithgaps = 1;     /* 1 means gaps are used by default */
 static const unsigned int gappx =
     10; /* default gap between windows in pixels */
@@ -16,18 +10,6 @@ static const char *fonts[] = {
     "monospace:size=10",
     "Symbols Nerd Font:size=11", /* icon glyphs for the tags */
 };
-
-/* systray */
-static const unsigned int systraypinning =
-    0; /* 0: sloppy systray follows selected monitor, >0: pin systray to monitor
-          X */
-static const unsigned int systrayonleft =
-    0; /* 0: systray in the right corner, >0: systray on left of status text */
-static const unsigned int systrayspacing = 2; /* systray spacing */
-static const int systraypinningfailfirst =
-    1; /* 1: if pinning fails, display systray on the first monitor, 0: on the
-          last monitor */
-static const int showsystray = 1; /* 0 means no systray */
 
 /* colors: dusk Tokyo street */
 static const char dmenufont[] = "monospace:size=10";
@@ -131,7 +113,6 @@ static const Key keys[] = {
     /* modifier                     key        function        argument */
     {MODKEY, XK_p, spawn, {.v = roficmd}},
     {MODKEY, XK_q, spawn, {.v = termcmd}},
-    {MODKEY, XK_b, togglebar, {0}},
     {MODKEY, XK_j, focusstack, {.i = +1}},
     {MODKEY, XK_k, focusstack, {.i = -1}},
     {MODKEY, XK_h, setmfact, {.f = -0.05}},
@@ -172,18 +153,10 @@ static const Key keys[] = {
 };
 
 /* button definitions */
-/* click can be ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
- * ClkClientWin, or ClkRootWin */
+/* Mouse bindings for client and root windows. */
 static const Button buttons[] = {
     /* click                event mask      button          function argument */
-    {ClkLtSymbol, 0, Button1, setlayout, {0}},
-    {ClkWinTitle, 0, Button2, zoom, {0}},
-    {ClkStatusText, 0, Button2, spawn, {.v = termcmd}},
     {ClkClientWin, MODKEY, Button1, movemouse, {0}},
     {ClkClientWin, MODKEY, Button2, togglefloating, {0}},
     {ClkClientWin, MODKEY, Button3, resizemouse, {0}},
-    {ClkTagBar, 0, Button1, view, {0}},
-    {ClkTagBar, 0, Button3, toggleview, {0}},
-    {ClkTagBar, MODKEY, Button1, tag, {0}},
-    {ClkTagBar, MODKEY, Button3, toggletag, {0}},
 };

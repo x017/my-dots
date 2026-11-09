@@ -113,6 +113,7 @@ static int fields(char *line, char **parts, int max) {
     return n;
 }
 
+#ifndef DASHBOARD_NO_SNAPSHOT
 static int bluetooth_list(char *output, Device *items, int count, int mark) {
     char *line, *save;
     for (line = strtok_r(output, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
@@ -180,6 +181,8 @@ static void read_snapshot(Snapshot *s) {
     }
     if (s->audio_available && run_command(mute, NULL, buf, sizeof buf, 2500) == 0) s->muted = strstr(buf, "yes") != NULL;
 }
+
+#endif /* DASHBOARD_NO_SNAPSHOT */
 
 static int execute(Request *r) {
     char out[MAX_OUTPUT], secret[320], number[32];
