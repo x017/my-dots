@@ -14,6 +14,10 @@
 #include <cui/cui.h>
 #include <cui/cui_render.h>
 #include <errno.h>
+#include <dirent.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,6 +27,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "../dwm/dashboard_backend.h"
+#include "../dwm/dashboard/desktop_controls.h"
 
 #define HEIGHT 36
 #define ICON_SIZE 24
@@ -49,6 +54,7 @@ typedef struct {
     int mx, my, mw, tag_count, worker_fd, worker_busy, worker_completed, worker_waiting;
     Panel panels[16]; int panel_count, current;
     Snapshot snapshot;
+    DesktopState desktop;
     int ethernet, network_available, cpu, memory, temperature, battery;
     unsigned long long cpu_total, cpu_idle;
     char clock[32], language[12];
@@ -170,7 +176,7 @@ static int acquire_tray(Bar *b) {
     return 1;
 }
 
-typedef struct { Snapshot snapshot; int ethernet, network_available, completed; } WorkerFrame;
+typedef struct { Snapshot snapshot; DesktopState desktop; int ethernet, network_available, completed; } WorkerFrame;
 static int write_all(int fd, const void *data, size_t length) {
     const char *p = data;
     while (length) {
@@ -191,6 +197,7 @@ static void worker(int fd) {
     for (;;) {
         int ready;
         read_snapshot(&frame.snapshot);
+        desktop_read(&frame.desktop);
         copystr(frame.snapshot.message, sizeof frame.snapshot.message, message);
         frame.ethernet = frame.network_available = 0;
         if (run_command(devices, NULL, output, sizeof output, 2500) == 0) {
@@ -209,11 +216,15 @@ static void worker(int fd) {
                 if (n <= 0) goto done;
                 used += (size_t)n;
             }
-            if (execute(&req)) {
+            int rc; message[0] = 0;
+            if (req.type == ACT_DISPLAY_APPLY || req.type == ACT_WALLPAPER_APPLY) {
+                message[0] = 0; rc = desktop_execute(&req, message, sizeof message);
+            } else rc = execute(&req);
+            if (rc && !message[0]) {
                 if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
                 else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
                 else copystr(message, sizeof message, "Action failed. Check device and permissions.");
-            } else copystr(message, sizeof message, "Done.");
+            } else if (!rc && req.type != ACT_DISPLAY_APPLY && req.type != ACT_WALLPAPER_APPLY) copystr(message, sizeof message, "Done.");
             wipe(&req, sizeof req);
             frame.completed++;
         }
@@ -419,7 +430,7 @@ static void open_popup(Bar *b, int page) {
     cui_input_focus(b->popup_ui, true);
 }
 static int draw_popup(Bar *b) {
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound"};
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Wallpaper"};
     XImage *image;
     cui_ctx *ui = b->popup_ui;
     if (!b->popup || !ui) return 1;
@@ -436,16 +447,18 @@ static int draw_popup(Bar *b) {
         cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
             cui_column(ui, .width = CUI_FILL, .gap = 3) {
                 cui_text(ui, "QUICK CONTROLS", .font = CUI_FONT_MEDIUM, .size = 16);
-                cui_text(ui, "NETWORK  /  DEVICES  /  AUDIO", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
+                cui_text(ui, "NETWORK  /  SOUND  /  DESKTOP", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
             }
             if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
         }
-        cui_segmented(ui, "pages", pages, 3, &popup_state.page, .full_width = true);
+        cui_segmented(ui, "pages", pages, 5, &popup_state.page, .full_width = true);
         if (b->worker_busy) cui_text(ui, "Working...", .color = CUI_COLOR_INFO);
         else if (b->snapshot.message[0]) cui_text(ui, b->snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
         if (popup_state.page == 0) wifi_page(ui, &popup_state, &b->snapshot, b->worker_busy);
         else if (popup_state.page == 1) bluetooth_page(ui, &popup_state, &b->snapshot, b->worker_busy);
-        else audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+        else if (popup_state.page == 2) audio_page(ui, &popup_state, &b->snapshot, b->worker_busy);
+        else if (popup_state.page == 3) display_page(ui, &popup_state, &b->desktop, b->worker_busy);
+        else wallpaper_page(ui, &popup_state, &b->desktop, b->worker_busy);
     }
     cui_end_frame(ui);
     cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
@@ -510,7 +523,7 @@ static Layout layout(const Bar *b) {
     l.network = right - 62; right = l.network - 4;
     l.audio = right - 62; right = l.audio - 4;
     l.tray = right - (b->current == 0 ? b->tray_width : 0);
-    l.tags = 38;
+    l.tags = 10;
     l.stats = l.tray - (l.tags + b->tag_count * 28) >= 300;
     return l;
 }
@@ -518,29 +531,27 @@ static void label(cui_ctx *ui, int x, int y, int size, cui_color color, const ch
     cui_draw_text(ui, CUI_FONT_MONO, size, (cui_vec2){x, y}, color, text, -1);
 }
 static void dock_cell(cui_ctx *ui, int x, int w, const char *title, const char *value, cui_color accent) {
-    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x12141a));
+    cui_draw_rect(ui, (cui_rect){x, 4, w, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1b212b));
     cui_draw_rect(ui, (cui_rect){x + 4, 9, 2, 18}, CUI_CORNERS(1), accent);
     cui_push_clip(ui, (cui_rect){x + 9, 4, w - 10, HEIGHT - 8});
-    label(ui, x + 10, 6, 9, CUI_RGB(0x64778d), title);
-    label(ui, x + 10, 17, 11, CUI_RGB(0xadbac7), value);
+    label(ui, x + 10, 6, 9, CUI_RGB(0x919eaf), title);
+    label(ui, x + 10, 17, 11, CUI_RGB(0xe5e9f0), value);
     cui_pop_clip(ui);
 }
 static void paint(cui_ctx *ui, cui_rect r, void *user) {
     Bar *b = *(Bar **)user; Layout l = layout(b); int i; char text[48];
-    cui_color fg = CUI_RGB(0xadbac7), muted = CUI_RGB(0x64778d), blue = CUI_RGB(0x7fa8c9), gold = CUI_RGB(0xf2d49e);
+    cui_color fg = CUI_RGB(0xe5e9f0), muted = CUI_RGB(0x919eaf), blue = CUI_RGB(0xb8cfe1), white = CUI_RGB(0xf1f4f8);
     (void)r;
-    cui_draw_rect(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(0), CUI_RGB(0x090b0d));
-    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x2d3035));
-    cui_draw_rect(ui, (cui_rect){8, 8, 22, 20}, CUI_CORNERS(5), CUI_RGB(0x1c2834));
-    label(ui, 13, 11, 11, blue, "W");
+    cui_draw_rect(ui, (cui_rect){0, 0, (float)b->width, HEIGHT}, CUI_CORNERS(0), CUI_RGB(0x10131a));
+    cui_draw_rect(ui, (cui_rect){0, HEIGHT - 1, (float)b->width, 1}, CUI_CORNERS(0), CUI_RGB(0x303a47));
     if (l.tags + b->tag_count * 28 <= l.tray - 4) {
         for (i = 0; i < b->tag_count; i++) {
             int x = l.tags + i * 28; unsigned long mask = 1ul << i;
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 5, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x24313d));
-            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 28, 12, 2}, CUI_CORNERS(1), gold);
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 2, 5, 24, 26}, CUI_CORNERS(5), CUI_RGB(0x394451));
+            if (b->active & mask) cui_draw_rect(ui, (cui_rect){x + 8, 28, 12, 2}, CUI_CORNERS(1), white);
             else if (b->occupied & mask) cui_draw_circle(ui, (cui_vec2){x + 14, 27}, 1.5f, blue);
             snprintf(text, sizeof text, "%d", i + 1);
-            label(ui, x + 10, 10, 12, b->urgent & mask ? CUI_RGB(0xb86a6a) : b->active & mask ? gold : b->occupied & mask ? fg : muted, text);
+            label(ui, x + 10, 10, 12, b->urgent & mask ? CUI_RGB(0xd8aeb5) : b->active & mask ? white : b->occupied & mask ? fg : muted, text);
         }
     }
     if (l.stats) {
@@ -553,7 +564,7 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
         label(ui, x + 75, 17, 11, fg, text);
         if (b->temperature >= 0) snprintf(text, sizeof text, "%d C", b->temperature); else strcpy(text, "-- C");
         label(ui, x + 150, 17, 11, muted, text);
-        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 205, 17, 11, b->battery <= 15 ? CUI_RGB(0xb86a6a) : fg, text); }
+        if (b->battery >= 0) { snprintf(text, sizeof text, "BAT %d%%", b->battery); label(ui, x + 205, 17, 11, b->battery <= 15 ? CUI_RGB(0xd8aeb5) : fg, text); }
     }
     if (b->snapshot.audio_available) { if (b->snapshot.muted) strcpy(text, "MUTE"); else snprintf(text, sizeof text, "%d%%", b->snapshot.volume); } else strcpy(text, "--");
     dock_cell(ui, l.audio, 62, "SOUND", text, blue);
@@ -565,8 +576,8 @@ static void paint(cui_ctx *ui, cui_rect r, void *user) {
         if (connected) snprintf(text, sizeof text, "%d ON", connected); else strcpy(text, "ON"); }
     dock_cell(ui, l.bluetooth, 54, "BT", text, b->snapshot.bluetooth_enabled ? blue : muted);
     label(ui, l.language + 5, 12, 11, muted, b->language);
-    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x1c2834));
-    label(ui, l.clock + 11, 10, 13, gold, b->clock);
+    cui_draw_rect(ui, (cui_rect){l.clock, 4, 64, HEIGHT - 8}, CUI_CORNERS(5), CUI_RGB(0x252e3a));
+    label(ui, l.clock + 11, 10, 13, white, b->clock);
     label(ui, l.lock + 8, 11, 12, muted, "L");
 }
 static int draw(Bar *b) {
@@ -607,6 +618,7 @@ static void clicked(Bar *b, XButtonEvent *e) {
         else if (e->button == Button3 && b->snapshot.bluetooth_available)
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
     }
+    else if (x >= l.clock && x < l.clock + 64 && e->button == Button1) open_popup(b, 3);
     else if (x >= l.lock && e->button == Button1) launch("mel");
 }
 
@@ -683,7 +695,7 @@ int main(void) {
             if (n > 0) {
                 received += (size_t)n;
                 if (received == sizeof incoming) {
-                    b.snapshot = incoming.snapshot; b.ethernet = incoming.ethernet; b.network_available = incoming.network_available;
+                    b.snapshot = incoming.snapshot; b.desktop = incoming.desktop; b.ethernet = incoming.ethernet; b.network_available = incoming.network_available;
                     b.worker_completed = incoming.completed;
                     if (b.worker_completed >= b.worker_waiting) b.worker_busy = 0;
                     received = 0; dirty = 1;

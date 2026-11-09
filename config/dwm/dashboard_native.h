@@ -79,9 +79,9 @@ dashboardnative(const Arg *arg)
   Drw *d;
   Clr *normal, *selected, *head;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
-  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
-  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
+  const char *nc[] = {"#e5e9f0", "#191e27", "#2a323e"};
+  const char *sc[] = {"#f1f4f8", "#394451", "#b8cfe1"};
+  const char *hc[] = {"#b6c0cf", "#10131a", "#3a4655"};
   Snapshot snapshot = {0};
   DashboardFrame incoming;
   unsigned int completed = 0, waiting_for = 0;
@@ -91,6 +91,7 @@ dashboardnative(const Arg *arg)
   size_t received = 0;
   int fd[2], width, height, rh, visible, choice = 0, start, count, i, done = 0;
   int busy = 1, page = 0, password_mode = 0, selected_bt = -1;
+  int volume_drag = 0, volume_pending = 0, volume_value = 0;
   char bt_mac[32] = "";
   pid_t pid;
   (void)arg;
@@ -106,7 +107,7 @@ dashboardnative(const Arg *arg)
   width = MAX(1, MIN(700, m->mw - 20)); rh = MAX(30, bh + 6);
   visible = MAX(1, MIN(12, (m->mh - 5 * rh - 20) / rh)); height = (visible + 5) * rh;
   wa.override_redirect = True; wa.background_pixel = BlackPixel(dpy, screen);
-  wa.event_mask = ExposureMask | ButtonPressMask;
+  wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
   win = XCreateWindow(dpy, root, m->mx + (m->mw - width) / 2, m->my + (m->mh - height) / 2,
                       width, height, 1, DefaultDepth(dpy, screen), CopyFromParent,
                       DefaultVisual(dpy, screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
@@ -156,7 +157,9 @@ dashboardnative(const Arg *arg)
     } else {
       if (!snapshot.audio_available) dashboardrow(rows, &count, ACT_NONE, 0, "Audio server / pactl unavailable");
       else {
-        dashboardrow(rows, &count, ACT_AUDIO_MUTE, 0, "Default output: %d%%  /  %s  [toggle mute]", snapshot.volume, snapshot.muted ? "MUTED" : "ON");
+        if (!volume_drag && !volume_pending && !busy) volume_value = snapshot.volume;
+        dashboardrow(rows, &count, ACT_AUDIO_MUTE, 0, "Default output: %d%%  /  %s  [toggle mute]", volume_value, snapshot.muted ? "MUTED" : "ON");
+        dashboardrow(rows, &count, ACT_NONE, 0, "Drag here to adjust volume");
         dashboardrow(rows, &count, ACT_AUDIO_VOLUME, MAX(0, snapshot.volume - 5), "Volume down 5%%");
         dashboardrow(rows, &count, ACT_AUDIO_VOLUME, MIN(100, snapshot.volume + 5), "Volume up 5%%");
       }
@@ -170,6 +173,11 @@ dashboardnative(const Arg *arg)
       int index = start + i;
       drw_setscheme(d, index == choice ? selected : normal);
       drw_text(d, 12, 2 * rh + i * rh, width - 24, rh - 2, 10, index < count ? rows[index].label : "", 0);
+      if (page == 2 && snapshot.audio_available && index == 1 && width > 180) {
+        int trackx = 175, trackw = width - trackx - 30, y = 2 * rh + i * rh + rh / 2;
+        drw_setscheme(d, head); drw_rect(d, trackx, y - 3, trackw, 6, 1, 0);
+        drw_setscheme(d, selected); drw_rect(d, trackx, y - 3, trackw * volume_value / 100, 6, 1, 0);
+      }
     }
     drw_setscheme(d, head);
     if (password_mode) {
@@ -223,8 +231,19 @@ dashboardnative(const Arg *arg)
         if (ev.xbutton.button == Button4) choice = (choice + count - 1) % count;
         else if (ev.xbutton.button == Button5) choice = (choice + 1) % count;
         else if (ev.xbutton.button == Button1 && ev.xbutton.y >= 2 * rh && ev.xbutton.y < (2 + visible) * rh) {
-          i = start + (ev.xbutton.y - 2 * rh) / rh; if (i < count) { choice = i; activate = 1; }
+          i = start + (ev.xbutton.y - 2 * rh) / rh;
+          if (i < count) {
+            choice = i;
+            if (page == 2 && snapshot.audio_available && i == 1 && width > 205) {
+              volume_drag = 1; volume_value = MAX(0, MIN(100, (ev.xbutton.x - 175) * 100 / (width - 205)));
+              volume_pending = 1;
+            } else activate = 1;
+          }
         }
+      } else if (ev.type == MotionNotify && volume_drag) {
+        volume_value = MAX(0, MIN(100, (ev.xmotion.x - 175) * 100 / (width - 205))); volume_pending = 1;
+      } else if (ev.type == ButtonRelease && ev.xbutton.button == Button1 && volume_drag) {
+        volume_value = MAX(0, MIN(100, (ev.xbutton.x - 175) * 100 / (width - 205))); volume_drag = 0; volume_pending = 1;
       } else if (ev.type == ConfigureNotify && ev.xconfigure.window == root) { done = 1; configurenotify(&ev); }
       else if (ev.type < LASTEvent && ev.type != Expose && ev.type != EnterNotify && ev.type != FocusIn && ev.type != KeyRelease && handler[ev.type]) handler[ev.type](&ev);
       if (activate && !busy) {
@@ -250,6 +269,13 @@ dashboardnative(const Arg *arg)
         }
         wipe(&req, sizeof req);
       }
+    }
+    if (volume_pending && !volume_drag && !busy) {
+      memset(&req, 0, sizeof req); req.type = ACT_AUDIO_VOLUME; req.value = volume_value;
+      if (send(fd[0], &req, sizeof req, MSG_DONTWAIT | MSG_NOSIGNAL) == sizeof req) {
+        busy = 1; waiting_for = completed + 1; volume_pending = 0;
+      } else copystr(status, sizeof status, "Could not send volume to backend.");
+      wipe(&req, sizeof req);
     }
   }
   close(fd[0]); wipe(password, sizeof password); wipe(&req, sizeof req);

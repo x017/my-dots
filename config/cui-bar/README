@@ -5,7 +5,8 @@ This is a separate X11/CUI program, inspired by the Waybar configuration in
 property/message protocol with this dwm build to display and switch workspaces
 and reserve space on each monitor (up to 16). The tray appears on the first
 monitor because an XEmbed icon can only be hosted by one tray at a time. The
-network, Bluetooth and audio control center is built into the bar process.
+network, Bluetooth, audio, display mode and wallpaper control center is built
+into the bar process.
 
 Build from the repository root (CMake, Git, a C compiler and X11 development
 headers/libraries required):
@@ -36,9 +37,12 @@ second for interaction and animations. Narrow screens hide the left stats
 when space is needed. Multi-monitor support requires dwm built with Xinerama.
 
 Click a workspace to view it on that monitor. Click volume, network or
-Bluetooth to open the bar's integrated CUI control popup on that monitor.
+Bluetooth to open the bar's integrated CUI control popup on that monitor. Click
+the clock to open its Display page; use its tabs to reach Wallpapers.
 The popup can list, scan, connect and disconnect Wi-Fi and Bluetooth devices,
-control radios, and adjust/mute audio; Escape or Close dismisses it. Right-click
+control radios, adjust/mute audio, select display resolutions and refresh rates,
+and apply wallpapers; Escape or Close dismisses it. Volume changes made while
+another action runs are retained and sent when the worker becomes free. Right-click
 volume to mute, scroll it to adjust by 2%, or right-click network/Bluetooth to
 toggle the radio directly. Lock launches mel. NetworkManager/nmcli, BlueZ/
 bluetoothctl and PulseAudio or PipeWire/pactl are needed for their respective
@@ -66,3 +70,13 @@ and dwm and restart dwm; stop any older cui-bar process first. dwm must be
 compiled with Xinerama support (the default in config.mk), and Xinerama must
 report the displays as distinct screens. Mirrored displays or a desktop that
 Xinerama reports as one screen will be treated as one monitor by dwm.
+
+Display and wallpaper controls
+------------------------------
+Display modes use xrandr and save successful changes in the same
+refreshrate.conf used by dwm's display switcher. Wallpaper selection uses
+feh --bg-fill and its normal ~/.fehbg persistence. Files come from
+DWM_WALLPAPERS_DIR or ~/Downloads/wallpaper; the CUI list shows up to 100
+images. The native dwm wallpaper picker provides image previews and needs
+Imlib2 with image format loaders installed. The CUI list does not currently
+provide thumbnails.

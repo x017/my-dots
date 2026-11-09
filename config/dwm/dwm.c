@@ -703,7 +703,8 @@ wallpaperimagesinit(WallpaperImages *api)
   LOADIMLIB(visual, "imlib_context_set_visual");
   LOADIMLIB(colormap, "imlib_context_set_colormap");
   LOADIMLIB(drawable, "imlib_context_set_drawable");
-  LOADIMLIB(load, "imlib_load_image");
+  /* Decode before unlinking temporary previews and avoid stale cache entries. */
+  LOADIMLIB(load, "imlib_load_image_immediately_without_cache");
   LOADIMLIB(image, "imlib_context_set_image");
   LOADIMLIB(width, "imlib_image_get_width");
   LOADIMLIB(height, "imlib_image_get_height");
@@ -754,6 +755,9 @@ wallpaperpreviewstart(WallpaperPreview *p, WallpaperImages *api, const char *sou
     struct stat st;
     close(fds[0]);
     close(ConnectionNumber(dpy));
+    /* The decoder does not need X. Never let Imlib use the inherited,
+     * now-closed display while decoding and saving in this helper. */
+    api->display(NULL);
     image = api->load(source);
     if (image) {
       api->image(image); w = api->width(); h = api->height();
@@ -877,10 +881,10 @@ void wallpaperswitcher(const Arg *arg)
   Drw *d;
   Clr *head, *normal, *selected, *blue;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
-  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
-  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
-  const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
+  const char *hc[] = {"#b6c0cf", "#10131a", "#3a4655"};
+  const char *nc[] = {"#e5e9f0", "#191e27", "#2a323e"};
+  const char *sc[] = {"#f1f4f8", "#394451", "#b8cfe1"};
+  const char *bc[] = {"#b8cfe1", "#10131a", "#2a323e"};
   const char *folder = getenv("DWM_WALLPAPERS_DIR"), *home = getenv("HOME");
   char *directory, **paths, *base, message[512], line[512];
   size_t count = 0, choice = 0, start, row;
@@ -980,7 +984,7 @@ void wallpaperswitcher(const Arg *arg)
         int result = 1;
         if (read(applyfd, &result, sizeof result) != sizeof result) result = 1;
         close(applyfd); applyfd = -1;
-        if (result == 0) done = 1;
+        if (result == 0) snprintf(message, sizeof message, "Wallpaper applied. Choose another, or press Escape to close.");
         else snprintf(message, sizeof message, "Could not apply. Check feh and the selected image.");
         continue;
       }
@@ -1221,10 +1225,10 @@ void monitorswitcher(const Arg *arg) {
   Drw *d;
   Clr *head, *normal, *selected, *blue;
   const char *font[] = {"monospace:size=10", "Symbols Nerd Font:size=11"};
-  const char *hc[] = {"#8a949e", "#090b0d", "#2d3035"};
-  const char *nc[] = {"#adbac7", "#121417", "#1e2025"};
-  const char *sc[] = {"#f2d49e", "#181a1e", "#f2d49e"};
-  const char *bc[] = {"#7fa8c9", "#090b0d", "#1e2025"};
+  const char *hc[] = {"#b6c0cf", "#10131a", "#3a4655"};
+  const char *nc[] = {"#e5e9f0", "#191e27", "#2a323e"};
+  const char *sc[] = {"#f1f4f8", "#394451", "#b8cfe1"};
+  const char *bc[] = {"#b8cfe1", "#10131a", "#2a323e"};
   unsigned int nm = 0, nw = 0, i, j, first, slots, active = 0;
   int width, height, pad = 16, rh, cardw, cardh, previewh;
   int done = 0, accept = 0, havepreview, ce, cr, de, dr, re, rr, major, minor;

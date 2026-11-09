@@ -16,10 +16,15 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <limits.h>
 
 static bool dashboard_worker_stopping(void);
 #define DASHBOARD_STOPPING() dashboard_worker_stopping()
 #include "../dashboard_backend.h"
+#include "desktop_controls.h"
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -28,6 +33,7 @@ typedef struct {
     int stopping, busy, pending;
     Request request;
     Snapshot state;
+    DesktopState desktop;
 } Backend;
 
 static Backend backend = { .mutex = PTHREAD_MUTEX_INITIALIZER, .wake = PTHREAD_COND_INITIALIZER };
@@ -40,6 +46,7 @@ static bool dashboard_worker_stopping(void) {
 
 static void *worker(void *unused) {
     Snapshot snapshot;
+    DesktopState desktop;
     Request request;
     char message[256] = "";
     (void)unused;
@@ -53,18 +60,23 @@ static void *worker(void *unused) {
         }
         pthread_mutex_unlock(&backend.mutex);
         if (has_request) {
-            int rc = execute(&request);
-            if (rc == 0) copystr(message, sizeof message, "Done.");
+            int rc;
+            message[0] = 0;
+            if (request.type == ACT_DISPLAY_APPLY || request.type == ACT_WALLPAPER_APPLY)
+                rc = desktop_execute(&request, message, sizeof message);
+            else rc = execute(&request);
+            if (rc == 0 && !message[0]) copystr(message, sizeof message, "Done.");
             else if (request.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password, permissions or NetworkManager.");
             else if (request.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. You may need a Bluetooth pairing agent; open Bluetooth settings.");
-            else copystr(message, sizeof message, "Action failed. Check device availability and permissions.");
+            else if (rc && !message[0]) copystr(message, sizeof message, "Action failed. Check device availability and permissions.");
             wipe(&request, sizeof request);
         }
         if (dashboard_worker_stopping()) break;
         read_snapshot(&snapshot);
+        desktop_read(&desktop);
         copystr(snapshot.message, sizeof snapshot.message, message);
         pthread_mutex_lock(&backend.mutex);
-        backend.state = snapshot;
+        backend.state = snapshot; backend.desktop = desktop;
         if (has_request) backend.busy = 0;
         clock_gettime(CLOCK_REALTIME, &until); until.tv_sec += 3;
         if (!backend.pending && !backend.stopping) pthread_cond_timedwait(&backend.wake, &backend.mutex, &until);
@@ -100,33 +112,34 @@ static void open_settings(const char *program) {
 
 typedef struct {
     char selected_wifi[32], selected_bt[32], password[256];
+    char display_output[128], wallpaper[256];
     float volume;
-    int page, initialized_volume;
+    int page, initialized_volume, volume_pending;
 } UIState;
 
 static void style(cui_ctx *ui) {
     cui_theme *t = cui_theme_get(ui);
-    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x121417);
-    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x181a1e);
-    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x121417);
-    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xadbac7);
-    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0x8a949e);
-    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x64778d);
-    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x1e2025);
-    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x1e2025);
-    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x2d3035);
-    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf2d49e);
-    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf2d49e);
-    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x2d3035);
-    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0x7fa8c9);
-    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xb86a6a);
-    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0x7fa8c9);
-    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x181a1e);
-    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0x7fa8c9);
+    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x191e27);
+    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x222936);
+    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x191e27);
+    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xe5e9f0);
+    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0xb6c0cf);
+    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x919eaf);
+    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x2a323e);
+    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x2a323e);
+    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x3a4655);
+    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf1f4f8);
+    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf1f4f8);
+    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x3a4655);
+    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0xb8cfe1);
+    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xd8aeb5);
+    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0xb8cfe1);
+    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x222936);
+    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0xb8cfe1);
     t->radius_control = 6; t->radius_panel = 8; t->radius_surface = 8;
     t->text_body = 13; t->heading[2] = 18;
 }
@@ -270,7 +283,7 @@ static void bluetooth_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool 
 }
 
 static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy) {
-    if (!busy || !state->initialized_volume) {
+    if ((!busy && !state->volume_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) || !state->initialized_volume) {
         state->volume = (float)s->volume;
         if (state->volume > 100) state->volume = 100;
         state->initialized_volume = 1;
@@ -278,8 +291,11 @@ static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy
     cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 14) {
         cui_label(ui, "Output volume");
         cui_secondary(ui, s->audio_available ? (s->muted ? "Default output is muted" : "Default output") : "PulseAudio-compatible server / pactl unavailable");
-        if (cui_slider(ui, "Volume", &state->volume, 0, 100, .step = 1, .show_value = true, .format = "%.0f%%", .width = CUI_FILL, .disabled = busy || !s->audio_available))
-            request_action(ACT_AUDIO_VOLUME, NULL, NULL, (int)state->volume);
+        if (cui_slider(ui, "Volume", &state->volume, 0, 100, .step = 1, .show_value = true, .format = "%.0f%%", .width = CUI_FILL, .disabled = !s->audio_available))
+            state->volume_pending = 1;
+        if (state->volume_pending && !busy && !cui_mouse_down(ui, CUI_MOUSE_LEFT) &&
+            request_action(ACT_AUDIO_VOLUME, NULL, NULL, (int)state->volume))
+            state->volume_pending = 0;
         cui_row(ui, .gap = 8, .wrap = true) {
             if (cui_button(ui, s->muted ? "Unmute" : "Mute", .icon = s->muted ? CUI_ICON_VOLUME_X : CUI_ICON_VOLUME_2, .disabled = busy || !s->audio_available))
                 request_action(ACT_AUDIO_MUTE, NULL, NULL, 0);
@@ -287,6 +303,8 @@ static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy
         }
     }
 }
+
+#include "desktop_pages.h"
 
 #ifdef DWM_EMBEDDED_CUI
 int dashboard_cui_main(void) {
@@ -296,7 +314,7 @@ int main(void) {
     cui_app *app;
     cui_ctx *ui;
     UIState state = {0};
-    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound"};
+    static const char *pages[] = {"Wi-Fi", "Bluetooth", "Sound", "Display", "Wallpaper"};
     signal(SIGPIPE, SIG_IGN);
     app = cui_app_create(&(cui_app_desc){ .title = "Dwm Control Center", .width = 760, .height = 700,
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
@@ -307,9 +325,9 @@ int main(void) {
         fprintf(stderr, "dwm-dashboard: unable to start worker\n"); cui_app_destroy(app); return 1;
     }
     while (cui_app_frame(app)) {
-        Snapshot snapshot; bool busy;
+        Snapshot snapshot; DesktopState desktop; bool busy;
         pthread_mutex_lock(&backend.mutex);
-        snapshot = backend.state; busy = backend.busy;
+        snapshot = backend.state; desktop = backend.desktop; busy = backend.busy;
         pthread_mutex_unlock(&backend.mutex);
         cui_request_wakeup(ui, 0.25f);
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) cui_app_quit(app);
@@ -317,17 +335,19 @@ int main(void) {
             cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
                 cui_column(ui, .width = CUI_FILL, .gap = 3) {
                     cui_text(ui, "C O N T R O L   C E N T E R", .font = CUI_FONT_MEDIUM, .size = 16);
-                    cui_text(ui, "WIRELESS  /  DEVICES  /  AUDIO", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
+                    cui_text(ui, "WIRELESS  /  AUDIO  /  DESKTOP", .size = 11, .color = CUI_COLOR_TEXT_SECONDARY);
                 }
                 if (cui_button(ui, "Close", .variant = CUI_BUTTON_GHOST)) cui_app_quit(app);
             }
             cui_separator(ui);
-            cui_segmented(ui, "pages", pages, 3, &state.page, .full_width = true);
+            cui_segmented(ui, "pages", pages, 5, &state.page, .full_width = true);
             if (busy) cui_text(ui, "Working…", .color = CUI_COLOR_INFO);
             else if (snapshot.message[0]) cui_text(ui, snapshot.message, .color = CUI_COLOR_TEXT_SECONDARY);
             if (state.page == 0) wifi_page(ui, &state, &snapshot, busy);
             else if (state.page == 1) bluetooth_page(ui, &state, &snapshot, busy);
-            else audio_page(ui, &state, &snapshot, busy);
+            else if (state.page == 2) audio_page(ui, &state, &snapshot, busy);
+            else if (state.page == 3) display_page(ui, &state, &desktop, busy);
+            else wallpaper_page(ui, &state, &desktop, busy);
         }
     }
     pthread_mutex_lock(&backend.mutex);

@@ -206,3 +206,9 @@ other X11 tray is running; existing autostart files are left unchanged. Set
 DWM_NO_CUI_BAR=1 before starting dwm to disable automatic launch.
 
 See ../cui-bar/README for build instructions, controls, and limitations.
+
+The CUI dashboard and the bar's control popup also include display mode and
+wallpaper pages. Display changes use xrandr and the same saved per-output
+configuration as the native switcher; wallpapers use feh and its ~/.fehbg.
+The native wallpaper picker previews images with Imlib2 (including its image
+loaders), and remains open after applying so another can be selected.

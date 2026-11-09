@@ -1,33 +1,34 @@
 /* CUI control-center widgets shared in behavior with dwm dashboard. */
 typedef struct {
     char selected_wifi[32], selected_bt[32], password[256];
+    char display_output[128], wallpaper[256];
     float volume;
-    int page, initialized_volume;
+    int page, initialized_volume, volume_pending;
 } UIState;
 
 static void style(cui_ctx *ui) {
     cui_theme *t = cui_theme_get(ui);
-    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x121417);
-    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x181a1e);
-    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x121417);
-    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xadbac7);
-    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0x8a949e);
-    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x64778d);
-    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x1e2025);
-    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x1e2025);
-    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x2d3035);
-    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf2d49e);
-    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf2d49e);
-    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x2d3035);
-    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0x7fa8c9);
-    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x090b0d);
-    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xb86a6a);
-    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0x7fa8c9);
-    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x181a1e);
-    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0x7fa8c9);
+    t->colors[CUI_TOKEN_BACKGROUND] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_SURFACE] = CUI_RGB(0x191e27);
+    t->colors[CUI_TOKEN_SURFACE_RAISED] = CUI_RGB(0x222936);
+    t->colors[CUI_TOKEN_SURFACE_MUTED] = CUI_RGB(0x191e27);
+    t->colors[CUI_TOKEN_FOREGROUND] = CUI_RGB(0xe5e9f0);
+    t->colors[CUI_TOKEN_TEXT_SECONDARY] = CUI_RGB(0xb6c0cf);
+    t->colors[CUI_TOKEN_TEXT_MUTED] = CUI_RGB(0x919eaf);
+    t->colors[CUI_TOKEN_BORDER] = CUI_RGB(0x2a323e);
+    t->colors[CUI_TOKEN_BORDER_SUBTLE] = CUI_RGB(0x2a323e);
+    t->colors[CUI_TOKEN_BORDER_STRONG] = CUI_RGB(0x3a4655);
+    t->colors[CUI_TOKEN_ACCENT] = CUI_RGB(0xf1f4f8);
+    t->colors[CUI_TOKEN_ACCENT_STRONG] = CUI_RGB(0xf1f4f8);
+    t->colors[CUI_TOKEN_ACCENT_SUBTLE] = CUI_RGB(0x3a4655);
+    t->colors[CUI_TOKEN_ACCENT_FOREGROUND] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_CONTROL_ON] = CUI_RGB(0xb8cfe1);
+    t->colors[CUI_TOKEN_CONTROL_GLYPH] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_CONTROL_THUMB_ON] = CUI_RGB(0x10131a);
+    t->colors[CUI_TOKEN_DANGER] = CUI_RGB(0xd8aeb5);
+    t->colors[CUI_TOKEN_INFO] = CUI_RGB(0xb8cfe1);
+    t->colors[CUI_TOKEN_HOVER] = CUI_RGB(0x222936);
+    t->colors[CUI_TOKEN_FOCUS_RING] = CUI_RGB(0xb8cfe1);
     t->radius_control = 6; t->radius_panel = 8; t->radius_surface = 8;
     t->text_body = 13; t->heading[2] = 18;
 }
@@ -155,7 +156,7 @@ static void bluetooth_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool 
 }
 
 static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy) {
-    if (!busy || !state->initialized_volume) {
+    if ((!busy && !state->volume_pending && !cui_mouse_down(ui, CUI_MOUSE_LEFT)) || !state->initialized_volume) {
         state->volume = (float)s->volume;
         if (state->volume > 100) state->volume = 100;
         state->initialized_volume = 1;
@@ -163,8 +164,11 @@ static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy
     cui_card(ui, .width = CUI_FILL, .pad = 16, .gap = 14) {
         cui_label(ui, "Output volume");
         cui_secondary(ui, s->audio_available ? (s->muted ? "Default output is muted" : "Default output") : "PulseAudio-compatible server / pactl unavailable");
-        if (cui_slider(ui, "Volume", &state->volume, 0, 100, .step = 1, .show_value = true, .format = "%.0f%%", .width = CUI_FILL, .disabled = busy || !s->audio_available))
-            request_action(ACT_AUDIO_VOLUME, NULL, NULL, (int)state->volume);
+        if (cui_slider(ui, "Volume", &state->volume, 0, 100, .step = 1, .show_value = true, .format = "%.0f%%", .width = CUI_FILL, .disabled = !s->audio_available))
+            state->volume_pending = 1;
+        if (state->volume_pending && !busy && !cui_mouse_down(ui, CUI_MOUSE_LEFT) &&
+            request_action(ACT_AUDIO_VOLUME, NULL, NULL, (int)state->volume))
+            state->volume_pending = 0;
         cui_row(ui, .gap = 8, .wrap = true) {
             if (cui_button(ui, s->muted ? "Unmute" : "Mute", .icon = s->muted ? CUI_ICON_VOLUME_X : CUI_ICON_VOLUME_2, .disabled = busy || !s->audio_available))
                 request_action(ACT_AUDIO_MUTE, NULL, NULL, 0);
@@ -172,3 +176,5 @@ static void audio_page(cui_ctx *ui, UIState *state, const Snapshot *s, bool busy
         }
     }
 }
+
+#include "../dwm/dashboard/desktop_pages.h"
