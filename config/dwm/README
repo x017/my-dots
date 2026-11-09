@@ -74,31 +74,41 @@ than three monitors, the cards page automatically as you cycle. The previews
 use the same X extensions and fallback as the window switcher. Existing
 Alt+comma and Alt+period monitor focus shortcuts still work.
 
-Waybar-inspired dwm bar
------------------------
-The old dwm status bar is replaced with a built-in, top-positioned bar. It
-uses the Waybar Editor Dark palette, JetBrainsMono Nerd Font, rounded pills,
-centered clickable tags, occupied/urgent indicators, and a blue bottom line.
-The bar is enabled by default on every monitor; Alt+B toggles it per monitor.
-The XEmbed system tray follows the focused monitor. Tags keep their usual
-left/right click and Alt+click actions.
+Standalone GTK3 bar
+-------------------
+The built-in dwm bar and its tray are disabled. `bar/` contains a small
+separate X11 bar written in C and GTK3, not Waybar or a status script. It has
+clickable tags per monitor, CPU, network, audio, and date/time. Its layout,
+commands and polling are in `bar/bar.c`; colors and pill styling are in
+`bar/style.css`. This is deliberately a small starting point, not a complete
+Waybar replacement: there is no tray or tooltip system.
 
-The bar starts ~/.config/dwm/bar-status.sh automatically (or
-$XDG_CONFIG_HOME/dwm/bar-status.sh if XDG_CONFIG_HOME is set). Copy this file
-along with the rest of config/dwm, then rebuild and restart dwm. The helper
-updates CPU usage, default audio sink, network and local date/time every two
-seconds; it exits after dwm exits. It uses the X root window name, replacing
-external xsetroot status writers and the old status2d text format. If the
-helper or a dependency is missing, unavailable readings show placeholders.
+Install GTK3, Xlib and pkg-config development packages, plus the dwm build
+requirements above. Then:
 
-- Audio: left or right click toggles mute, scroll changes volume by 2%, and
-  middle click opens pavucontrol. Requires pactl and a PulseAudio-compatible
-  server (PulseAudio or PipeWire's pulse server); pavucontrol is optional.
-- Network: left or right click opens nm-connection-editor. NetworkManager's
-  nmcli provides the connection type; without it, a basic link-state fallback
-  is used. The editor is optional.
-- CPU: left click opens top in Ghostty. Clock: left click opens gsimplecal.
-  Ghostty and gsimplecal are optional; date and time are always displayed.
-- xsetroot, a POSIX shell, date, sed and /proc/stat are used by the helper.
-  A Nerd Font is needed for the icons. On narrow monitors, modules are hidden
-  as needed to prioritize tags and the clock.
+    cd ~/.config/dwm
+    make clean install        # run with appropriate install permissions
+    cd bar
+    make
+    sudo make install         # installs dwm-bar to /usr/local/bin
+
+Keep `bar/style.css` at ~/.config/dwm/bar/style.css (or under
+$XDG_CONFIG_HOME/dwm/bar/). Start `dwm-bar` once from your existing
+~/.local/share/dwm/autostart.sh, for example by adding `dwm-bar &`, then
+restart dwm. The bar needs the modified dwm: `_DWM_BAR_STATE` is an X11 root
+property with one line per monitor (`id x y width height selected occupied
+urgent`); `_DWM_BAR_VIEW` is a root ClientMessage containing monitor id, tag
+bit and action (0 view, 1 toggle). This keeps the GTK code independent and
+makes the interface easy to extend.
+
+The bar reserves 40 pixels at the top of every monitor. If you change
+BAR_HEIGHT in `bar/bar.c`, also change externalbarheight in dwm's config.h
+and rebuild both. To remove the reservation when not using the bar, set
+externalbarheight to 0 and rebuild dwm. The reservation persists even if the
+bar is stopped. Left/right click a tag to view/toggle it. Left or right click
+audio to mute, scroll to change volume by 2%, or middle click for pavucontrol;
+network opens nm-connection-editor, CPU opens top in Ghostty, and the clock
+opens gsimplecal. These commands are optional and can be changed in bar.c.
+`pactl` and a PulseAudio-compatible server provide volume; `nmcli` provides
+network state; missing commands show placeholders. Restart the bar to reload
+CSS changes. A Nerd Font is needed for the icons.
