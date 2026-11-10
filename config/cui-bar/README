@@ -153,7 +153,7 @@ Persian text
 The bar and its popups use CUI's bidirectional Arabic/Persian shaping and a
 Persian-capable system font fallback. Install fontconfig and a font such as
 DejaVu Sans or Noto Sans Arabic; optionally set CUI_PERSIAN_FONT to a fallback
-font file. If installed, Vazirmatn is preferred for UI text (including Latin);
+font file. If installed, Vazirmatn or Vazir is preferred for UI text (including Latin);
 run fc-cache -f after installing it. CUI_BAR_FONT overrides the bar text font.
 Reconfigure and rebuild the bar after updating. Editable fields still have
 CUI's left-to-right caret/typing limitations; this does not translate the UI.

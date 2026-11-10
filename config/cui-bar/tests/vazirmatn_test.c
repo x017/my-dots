@@ -20,6 +20,6 @@ int main(int argc, char **argv) {
     else assert(0);
     assert(original >= 0);
     cui_destroy(ui); cui_sw_destroy(r);
-    puts("Vazirmatn selection and custom override passed");
+    puts("Persian font selection and custom override passed");
     return 0;
 }

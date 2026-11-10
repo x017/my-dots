@@ -141,35 +141,41 @@ xfont_free(Fnt *font)
 	free(font);
 }
 
-/* Fontconfig normally substitutes another family for a missing name. Only
- * choose Vazirmatn when the matched family really is installed. */
-static int
-vazirmatn_available(void)
+/* Fontconfig substitutes another family for a missing name. Check the
+ * actual match, preferring Vazirmatn, then the older Vazir family. */
+static const char *
+preferred_persian_font(void)
 {
-    static int cached = -1;
-    FcPattern *pattern, *match;
-    FcChar8 *family;
-    FcResult result;
-    if (cached >= 0) return cached;
-    cached = 0;
-    pattern = FcNameParse((const FcChar8 *)"Vazirmatn:style=Regular");
-    if (!pattern) return 0;
-    FcConfigSubstitute(NULL, pattern, FcMatchPattern);
-    FcDefaultSubstitute(pattern);
-    match = FcFontMatch(NULL, pattern, &result);
-    if (match) {
-        if (FcPatternGetString(match, FC_FAMILY, 0, &family) == FcResultMatch &&
-            !strcasecmp((const char *)family, "Vazirmatn")) cached = 1;
-        FcPatternDestroy(match);
+    static int searched;
+    static const char *chosen;
+    static const char *families[] = {"Vazirmatn", "Vazir"};
+    static const char *patterns[] = {"Vazirmatn:size=10", "Vazir:size=10"};
+    if (searched) return chosen;
+    searched = 1;
+    for (size_t i = 0; i < sizeof families / sizeof families[0]; i++) {
+        FcPattern *pattern = FcNameParse((const FcChar8 *)patterns[i]), *match;
+        FcChar8 *family;
+        FcResult result;
+        if (!pattern) continue;
+        FcConfigSubstitute(NULL, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        match = FcFontMatch(NULL, pattern, &result);
+        if (match) {
+            if (FcPatternGetString(match, FC_FAMILY, 0, &family) == FcResultMatch &&
+                !strcasecmp((const char *)family, families[i])) chosen = patterns[i];
+            FcPatternDestroy(match);
+        }
+        FcPatternDestroy(pattern);
+        if (chosen) break;
     }
-    FcPatternDestroy(pattern);
-    return cached;
+    return chosen;
 }
 
 Fnt*
 drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 {
 	Fnt *cur, *ret = NULL;
+	const char *preferred;
 	size_t i;
 
 	if (!drw || !fonts)
@@ -182,9 +188,10 @@ drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 		}
 	}
 	/* Preserve a custom configured first font. The built-in native panels
-	 * default to monospace; use Vazirmatn ahead of it when available. */
-	if (fontcount && !strcmp(fonts[0], "monospace:size=10") && vazirmatn_available() &&
-	    (cur = xfont_create(drw, "Vazirmatn:size=10", NULL))) {
+	 * default to monospace; prefer installed Vazirmatn or Vazir. */
+	if (fontcount && !strcmp(fonts[0], "monospace:size=10") &&
+	    (preferred = preferred_persian_font()) &&
+	    (cur = xfont_create(drw, preferred, NULL))) {
 		cur->next = ret;
 		ret = cur;
 	}
