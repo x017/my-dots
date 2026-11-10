@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 include(FetchContent)
 set(CUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CUI_TEXT_SHAPING ON CACHE BOOL "" FORCE)
 set(CUI_PLATFORM x11 CACHE STRING "" FORCE)
 FetchContent_Declare(cui
   GIT_REPOSITORY https://github.com/yappologistic/CUI.git

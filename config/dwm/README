@@ -207,6 +207,21 @@ blueman-manager, and pavucontrol when installed. The standalone CUI build
 remains available for independent testing, but is not needed by the binding.
 Existing autostart files are not changed.
 
+Persian text
+------------
+The CUI bar, its dashboard and the optional CUI dashboard build with Arabic
+text shaping enabled. Install a Persian-capable TrueType/OpenType font (such as
+DejaVu Sans or Noto Sans Arabic) and fontconfig's fc-match. The UIs select a
+Persian fallback with fc-match; CUI_PERSIAN_FONT can instead name the font file.
+Native dwm panels (including Alt+Tab, wallpaper and the native dashboard) use
+FriBidi for Persian joining and bidirectional ordering when libfribidi.so.0 is
+installed. Install the FriBidi runtime package and rebuild/restart dwm.
+Without it, the native panels retain their previous unshaped rendering.
+This adds text rendering, not a Persian translation of the interface. CUI's
+editable fields currently do not implement RTL caret navigation or shaping;
+native password input is also limited by XLookupString. Other applications and
+Dunst manage their own font and shaping settings independently.
+
 Standalone CUI bar
 ------------------
 The old dwm bar and tray have been removed. The replacement is a separate,

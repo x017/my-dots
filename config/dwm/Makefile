@@ -15,7 +15,7 @@ OBJ += dashboard/cui-embedded.o
 CFLAGS += -DDWM_CUI -I$(CUI_DIR)/include
 LDFLAGS += $(CUI_LIB) -pthread -lm
 
-dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h $(CUI_LIB)
+dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/persian_font.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
 endif
 
@@ -26,6 +26,7 @@ all: dwm
 
 ${OBJ}: config.h config.mk
 dwm.o: dashboard_native.h dashboard_backend.h
+drw.o: persian_text.h
 
 config.h:
 	cp config.def.h $@
@@ -39,7 +40,7 @@ clean:
 dist: clean
 	mkdir -p dwm-${VERSION}
 	cp -R LICENSE Makefile README config.def.h config.mk\
-		dwm.1 drw.h util.h dashboard_backend.h dashboard_native.h ${SRC} dwm.png transient.c dwm-${VERSION}
+		dwm.1 drw.h util.h dashboard_backend.h dashboard_native.h ${SRC} dwm.png transient.c persian_text.h dwm-${VERSION}
 	cp -R dashboard dwm-${VERSION}/
 	tar -cf dwm-${VERSION}.tar dwm-${VERSION}
 	gzip dwm-${VERSION}.tar

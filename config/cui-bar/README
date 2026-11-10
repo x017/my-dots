@@ -147,3 +147,11 @@ a Bluetooth pairing agent such as blueman-applet. Start the appropriate agent
 in your existing session startup if it is not already running; existing
 startup files are never modified. Authorization errors are reported in the
 popup; check `bluetoothctl show` and `loginctl session-status` when diagnosing.
+
+Persian text
+------------
+The bar and its popups use CUI's bidirectional Arabic/Persian shaping and a
+Persian-capable system font fallback. Install fontconfig and a font such as
+DejaVu Sans or Noto Sans Arabic; optionally set CUI_PERSIAN_FONT to a font file.
+Reconfigure and rebuild the bar after updating. Editable fields still have
+CUI's left-to-right caret/typing limitations; this does not translate the UI.
