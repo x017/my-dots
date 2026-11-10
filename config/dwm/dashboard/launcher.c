@@ -84,6 +84,14 @@ int main(void) {
     if (!app) { fprintf(stderr, "dwm-launcher: could not open an X11 window\n"); return 1; }
     ui = cui_app_ui(app);
     style(ui);
+    /* The palette draws a 1 px edge and its separator lines from the BORDER
+     * token. Here the palette is the whole window, so that line just reads as a
+     * box around a box: match the token to the panel fill and let the panel's
+     * own surface and shadow carry the shape. */
+    {
+        cui_theme *t = cui_theme_get(ui);
+        t->colors[CUI_TOKEN_BORDER] = t->colors[CUI_TOKEN_SURFACE_RAISED];
+    }
     ui_fonts_setup(ui);
     launcher_apps_read(&apps);
     if (apps.count) {
