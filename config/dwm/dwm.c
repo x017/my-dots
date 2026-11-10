@@ -2242,7 +2242,9 @@ void manage(Window w, XWindowAttributes *wa) {
     c->y = c->mon->wy + c->mon->wh - HEIGHT(c);
   c->x = MAX(c->x, c->mon->wx);
   c->y = MAX(c->y, c->mon->wy);
-  c->bw = borderpx;
+  /* The shaped CUI launcher is its own panel; do not draw a dwm border
+   * around its silhouette. Other clients retain the configured border. */
+  c->bw = !strcmp(c->name, "Dwm Launcher") ? 0 : borderpx;
 
   wc.border_width = c->bw;
   XConfigureWindow(dpy, w, CWBorderWidth, &wc);

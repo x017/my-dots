@@ -13,12 +13,12 @@ CUI_DIR = dashboard/build/_deps/cui-src
 CUI_LIB = dashboard/build/_deps/cui-build/libcui.a
 OBJ += dashboard/cui-embedded.o dashboard/launcher-embedded.o
 CFLAGS += -DDWM_CUI -I$(CUI_DIR)/include
-LDFLAGS += $(CUI_LIB) -pthread -lm
+LDFLAGS += $(CUI_LIB) -lXext -pthread -lm
 
 dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h command_run.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
 
-dashboard/launcher-embedded.o: dashboard/launcher.c dashboard/launcher_theme.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/launcher_exec.h dashboard/launcher_apps.h command_run.h $(CUI_LIB)
+dashboard/launcher-embedded.o: dashboard/launcher.c dashboard/launcher_shape.h dashboard/launcher_theme.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/launcher_exec.h dashboard/launcher_apps.h command_run.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/launcher.c
 endif
 

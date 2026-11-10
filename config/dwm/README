@@ -208,6 +208,9 @@ $TERMINAL, or Ghostty when that variable is unset. Field codes in Exec are
 expanded per the Desktop Entry Specification and the command is executed
 directly, never through a shell.
 
+The launcher uses the X11 Shape extension (libXext development headers are
+required at build time) to show only the palette, not a larger backing window.
+On a server without the extension it falls back to a rectangular window.
 The launcher needs the CUI build described below; it is compiled into dwm and
 runs in a forked child like the CUI control center. When dwm is built without
 CUI=1, Alt+P keeps running rofi instead.

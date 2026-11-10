@@ -16,6 +16,7 @@
 #include "../command_run.h"
 #include "persian_font.h"
 #include "launcher_theme.h"
+#include "launcher_shape.h"
 #include "ui_fonts.h"
 #include "launcher_exec.h"
 #include "launcher_apps.h"
@@ -71,6 +72,7 @@ int main(void) {
 #endif
     cui_app *app;
     cui_ctx *ui;
+    struct launcher_shape shape;
     LauncherAppList apps;
     cui_command *commands = NULL;
     bool open = true;
@@ -81,13 +83,14 @@ int main(void) {
                                           .min_width = 480, .min_height = 360, .fixed_size = true,
                                           .theme = CUI_THEME_DARK });
     if (!app) { fprintf(stderr, "dwm-launcher: could not open an X11 window\n"); return 1; }
+    launcher_shape_open(&shape, app);
     ui = cui_app_ui(app);
     launcher_theme(ui);
     ui_fonts_setup(ui);
     launcher_apps_read(&apps);
     if (apps.count) {
         commands = calloc((size_t)apps.count, sizeof *commands);
-        if (!commands) { fprintf(stderr, "dwm-launcher: out of memory\n"); cui_app_destroy(app); return 1; }
+        if (!commands) { fprintf(stderr, "dwm-launcher: out of memory\n"); launcher_shape_close(&shape); cui_app_destroy(app); return 1; }
     }
     for (i = 0; i < apps.count; i++) {
         commands[i].title = apps.items[i].name;
@@ -97,6 +100,7 @@ int main(void) {
     }
     while (cui_app_frame(app)) {
         int chosen;
+        launcher_shape_update(&shape, ui);
         /* The palette owns a floating root of its own; this only keeps the
          * window's root non-empty and draws nothing. */
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL) {
@@ -107,6 +111,7 @@ int main(void) {
         else if (!open) cui_app_quit(app);
     }
     free(commands);
+    launcher_shape_close(&shape);
     cui_app_destroy(app);
     return 0;
 }
