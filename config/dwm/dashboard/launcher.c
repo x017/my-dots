@@ -15,7 +15,7 @@
 
 #include "../command_run.h"
 #include "persian_font.h"
-#include "theme.h"
+#include "launcher_theme.h"
 #include "ui_fonts.h"
 #include "launcher_exec.h"
 #include "launcher_apps.h"
@@ -73,7 +73,6 @@ int main(void) {
     cui_ctx *ui;
     LauncherAppList apps;
     cui_command *commands = NULL;
-    char summary[64];
     bool open = true;
     int i;
 
@@ -83,15 +82,7 @@ int main(void) {
                                           .theme = CUI_THEME_DARK });
     if (!app) { fprintf(stderr, "dwm-launcher: could not open an X11 window\n"); return 1; }
     ui = cui_app_ui(app);
-    style(ui);
-    /* The palette draws a 1 px edge and its separator lines from the BORDER
-     * token. Here the palette is the whole window, so that line just reads as a
-     * box around a box: match the token to the panel fill and let the panel's
-     * own surface and shadow carry the shape. */
-    {
-        cui_theme *t = cui_theme_get(ui);
-        t->colors[CUI_TOKEN_BORDER] = t->colors[CUI_TOKEN_SURFACE_RAISED];
-    }
+    launcher_theme(ui);
     ui_fonts_setup(ui);
     launcher_apps_read(&apps);
     if (apps.count) {
@@ -104,12 +95,11 @@ int main(void) {
         commands[i].group = apps.items[i].group;
         commands[i].shortcut = apps.items[i].binary[0] ? apps.items[i].binary : NULL;
     }
-    snprintf(summary, sizeof summary, "%d application%s found", apps.count, apps.count == 1 ? "" : "s");
     while (cui_app_frame(app)) {
         int chosen;
-        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 18, .gap = 4) {
-            cui_text(ui, "APPLICATIONS", .size = 10, .color = CUI_COLOR_TEXT_SECONDARY);
-            cui_text(ui, summary, .size = 10, .color = CUI_COLOR_TEXT_MUTED);
+        /* The palette owns a floating root of its own; this only keeps the
+         * window's root non-empty and draws nothing. */
+        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL) {
             cui_spacer(ui);
         }
         chosen = cui_command_palette(ui, &open, commands, apps.count);

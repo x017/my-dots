@@ -18,7 +18,7 @@ LDFLAGS += $(CUI_LIB) -pthread -lm
 dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h command_run.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
 
-dashboard/launcher-embedded.o: dashboard/launcher.c dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/launcher_exec.h dashboard/launcher_apps.h command_run.h $(CUI_LIB)
+dashboard/launcher-embedded.o: dashboard/launcher.c dashboard/launcher_theme.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/launcher_exec.h dashboard/launcher_apps.h command_run.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/launcher.c
 endif
 
