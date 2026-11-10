@@ -38,8 +38,6 @@
 #define TOP_GAP 8
 #define SIDE_GAP 10
 #define RADIUS 8
-#define POPUP_RADIUS 14
-#define POPUP_BORDER 1
 #define ICON_SIZE 18
 #define ICON_SLOT 30
 #define MAX_ICONS 64
@@ -77,7 +75,6 @@ typedef struct {
     cui_sw_renderer *renderer;
     cui_ctx *ui;
     Window popup, popup_previous_focus; int popup_previous_revert;
-    Pixmap popup_outline;
     int popup_width, popup_height, popup_page, popup_dirty, calendar_offset, popup_calendar, popup_notifications, popup_monitor;
     int island_fd, island_initialized, island_live; double island_notice_until; IslandFrame island;
     cui_ctx *popup_ui;
@@ -357,49 +354,31 @@ static void send_command(Bar *b, long command, long value, int monitor) {
     XSendEvent(b->dpy, b->root, False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
     XFlush(b->dpy);
 }
-/* Share the exact X rasterization between the bounding shape and its border.
- * A CUI anti-aliased border at the outer edge can be clipped by XShape. */
-static void fill_rounded_mask(Display *dpy, Pixmap mask, GC gc,
-                              int x, int y, int width, int height, int radius) {
-    if (width < radius * 2) radius = width / 2;
-    if (height < radius * 2) radius = height / 2;
-    XFillRectangle(dpy, mask, gc, x + radius, y, width - radius * 2, height);
-    XFillRectangle(dpy, mask, gc, x, y + radius, width, height - radius * 2);
-    XFillArc(dpy, mask, gc, x, y, radius * 2, radius * 2, 0, 360 * 64);
-    XFillArc(dpy, mask, gc, x + width - radius * 2, y, radius * 2, radius * 2, 0, 360 * 64);
-    XFillArc(dpy, mask, gc, x, y + height - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
-    XFillArc(dpy, mask, gc, x + width - radius * 2, y + height - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
-}
-static Pixmap rounded_mask(Bar *b, Window win, int width, int height, int radius, int border) {
-    Pixmap mask = XCreatePixmap(b->dpy, win, width, height, 1);
-    if (!mask) return None;
-    GC gc = XCreateGC(b->dpy, mask, 0, NULL);
-    if (!gc) { XFreePixmap(b->dpy, mask); return None; }
-    XSetForeground(b->dpy, gc, 0); XFillRectangle(b->dpy, mask, gc, 0, 0, width, height);
-    XSetForeground(b->dpy, gc, 1); fill_rounded_mask(b->dpy, mask, gc, 0, 0, width, height, radius);
-    if (border > 0 && width > 2 * border && height > 2 * border) {
-        XSetForeground(b->dpy, gc, 0);
-        fill_rounded_mask(b->dpy, mask, gc, border, border, width - 2 * border, height - 2 * border,
-                          radius > border ? radius - border : 0);
-    }
-    XFreeGC(b->dpy, gc);
-    return mask;
-}
 /* Shape the actual X window, not just the pixels, so corners show the desktop. */
 static void shape_window(Bar *b, Window win, int width, int height, int radius) {
     typedef int (*Query)(Display *, int *, int *);
     typedef void (*Combine)(Display *, Window, int, int, int, Pixmap, int);
     static void *lib;
     if (!lib) lib = dlopen("libXext.so.6", RTLD_LAZY | RTLD_LOCAL);
-    Query query; Combine combine; int event, error; Pixmap mask;
+    Query query; Combine combine; int event, error; Pixmap mask; GC gc;
     if (!lib) return;
     *(void **)(&query) = dlsym(lib, "XShapeQueryExtension");
     *(void **)(&combine) = dlsym(lib, "XShapeCombineMask");
-    if (!query || !combine || !query(b->dpy, &event, &error)) return;
-    mask = rounded_mask(b, win, width, height, radius, 0);
-    if (!mask) return;
+    if (!query || !combine || !query(b->dpy, &event, &error)) { return; }
+    if (width < radius * 2) radius = width / 2;
+    if (height < radius * 2) radius = height / 2;
+    mask = XCreatePixmap(b->dpy, win, width, height, 1);
+    gc = XCreateGC(b->dpy, mask, 0, NULL);
+    XSetForeground(b->dpy, gc, 0); XFillRectangle(b->dpy, mask, gc, 0, 0, width, height);
+    XSetForeground(b->dpy, gc, 1);
+    XFillRectangle(b->dpy, mask, gc, radius, 0, width - radius * 2, height);
+    XFillRectangle(b->dpy, mask, gc, 0, radius, width, height - radius * 2);
+    XFillArc(b->dpy, mask, gc, 0, 0, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, width - radius * 2, 0, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, 0, height - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
+    XFillArc(b->dpy, mask, gc, width - radius * 2, height - radius * 2, radius * 2, radius * 2, 0, 360 * 64);
     combine(b->dpy, win, 0 /* ShapeBounding */, 0, 0, mask, 0 /* ShapeSet */);
-    XFreePixmap(b->dpy, mask);
+    XFreeGC(b->dpy, gc); XFreePixmap(b->dpy, mask);
 }
 static void use_panel(Bar *b, int i) {
     Panel *p = &b->panels[i];
@@ -631,7 +610,6 @@ static void close_popup(Bar *b) {
     if (!b->popup) return;
     restore_popup_focus(b);
     b->music_seek_pending = 0;
-    if (b->popup_outline) { XFreePixmap(b->dpy, b->popup_outline); b->popup_outline = None; }
     XDestroyWindow(b->dpy, b->popup); b->popup = None;
     if (b->popup_ui) {
         int i;
@@ -663,14 +641,10 @@ static void open_popup(Bar *b, int page) {
                             width, height, 0, DefaultDepth(b->dpy, b->screen), InputOutput,
                             DefaultVisual(b->dpy, b->screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attr);
     if (!b->popup) return;
-    shape_window(b, b->popup, width, height, POPUP_RADIUS);
-    if (page != 4) b->popup_outline = rounded_mask(b, b->popup, width, height, POPUP_RADIUS, POPUP_BORDER);
+    shape_window(b, b->popup, width, height, 14);
     iface = cui_sw_iface(b->renderer);
     b->popup_ui = cui_create(&(cui_ctx_desc){ .renderer = iface, .theme = CUI_THEME_DARK });
-    if (!b->popup_ui) {
-        if (b->popup_outline) { XFreePixmap(b->dpy, b->popup_outline); b->popup_outline = None; }
-        XDestroyWindow(b->dpy, b->popup); b->popup = None; return;
-    }
+    if (!b->popup_ui) { XDestroyWindow(b->dpy, b->popup); b->popup = None; return; }
     style(b->popup_ui);
     cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
@@ -888,24 +862,6 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
         }
     }
 }
-/* The dashboard and island outline is drawn using the X window shape after
- * rendering, so the rounded corners cannot be clipped by a different rasterizer. */
-static void popup_contents(cui_ctx *ui, Bar *b) {
-    if (!b->popup_calendar) {
-        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .clip = true) {
-            if (b->popup_notifications) notifications_page(ui, b);
-            else if (dashboard_shell(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy)) b->popup_page = -1;
-        }
-    } else {
-        cui_scroll(ui, .id = "calendar", .width = CUI_FILL, .height = CUI_FILL, .pad = 10, .gap = 8) {
-            calendar_page(ui, b);
-            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_column(ui, .width = CUI_FILL) { cui_secondary(ui, "Local time"); }
-                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
-            }
-        }
-    }
-}
 static int draw_popup(Bar *b) {
     XImage *image;
     cui_ctx *ui = b->popup_ui;
@@ -919,16 +875,22 @@ static int draw_popup(Bar *b) {
     if (!image->data) { XDestroyImage(image); return 0; }
     cui_set_viewport(ui, b->popup_width, b->popup_height, 1);
     cui_begin_frame(ui, 0.05f);
-    popup_contents(ui, b);
+    if (b->popup_calendar) {
+        cui_scroll(ui, .id = "calendar", .width = CUI_FILL, .height = CUI_FILL, .pad = 10, .gap = 8) {
+            calendar_page(ui, b);
+            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
+                cui_column(ui, .width = CUI_FILL) { cui_secondary(ui, "Local time"); }
+                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+            }
+        }
+    } else if (b->popup_notifications) {
+        notifications_page(ui, b);
+    } else {
+        if (dashboard_shell(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy)) b->popup_page = -1;
+    }
     cui_end_frame(ui);
     cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
     XPutImage(b->dpy, b->popup, b->gc, image, 0, 0, 0, 0, b->popup_width, b->popup_height);
-    if (b->popup_outline) {
-        XSetClipMask(b->dpy, b->gc, b->popup_outline);
-        XSetForeground(b->dpy, b->gc, 0x2d3035);
-        XFillRectangle(b->dpy, b->popup, b->gc, 0, 0, b->popup_width, b->popup_height);
-        XSetClipMask(b->dpy, b->gc, None);
-    }
     XDestroyImage(image); XFlush(b->dpy);
     if (b->popup_page == -1) { b->popup_page = 0; close_popup(b); }
     return 1;
