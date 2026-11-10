@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
 
@@ -140,6 +141,31 @@ xfont_free(Fnt *font)
 	free(font);
 }
 
+/* Fontconfig normally substitutes another family for a missing name. Only
+ * choose Vazirmatn when the matched family really is installed. */
+static int
+vazirmatn_available(void)
+{
+    static int cached = -1;
+    FcPattern *pattern, *match;
+    FcChar8 *family;
+    FcResult result;
+    if (cached >= 0) return cached;
+    cached = 0;
+    pattern = FcNameParse((const FcChar8 *)"Vazirmatn:style=Regular");
+    if (!pattern) return 0;
+    FcConfigSubstitute(NULL, pattern, FcMatchPattern);
+    FcDefaultSubstitute(pattern);
+    match = FcFontMatch(NULL, pattern, &result);
+    if (match) {
+        if (FcPatternGetString(match, FC_FAMILY, 0, &family) == FcResultMatch &&
+            !strcasecmp((const char *)family, "Vazirmatn")) cached = 1;
+        FcPatternDestroy(match);
+    }
+    FcPatternDestroy(pattern);
+    return cached;
+}
+
 Fnt*
 drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 {
@@ -154,6 +180,13 @@ drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 			cur->next = ret;
 			ret = cur;
 		}
+	}
+	/* Preserve a custom configured first font. The built-in native panels
+	 * default to monospace; use Vazirmatn ahead of it when available. */
+	if (fontcount && !strcmp(fonts[0], "monospace:size=10") && vazirmatn_available() &&
+	    (cur = xfont_create(drw, "Vazirmatn:size=10", NULL))) {
+		cur->next = ret;
+		ret = cur;
 	}
 	return (drw->fonts = ret);
 }

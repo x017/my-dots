@@ -22,7 +22,7 @@ int main(void) {
     if (!font) font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
     if (access(font, R_OK) != 0) { puts("Set CUI_PERSIAN_TEST_FONT to a Persian-capable font to run this test"); return 77; }
     assert(setenv("CUI_PERSIAN_FONT", font, 1) == 0);
-    cui_persian_fallback(ui);
+    cui_persian_fallback(ui, 0);
     render(ui, r, "سلام دنیا", after);
     assert(memcmp(before, after, 320 * 60 * 4) != 0);
     assert(cui_measure_text(ui, CUI_FONT_MONO, 24, "سلام دنیا 123", -1).width > 0);

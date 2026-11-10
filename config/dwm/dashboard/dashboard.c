@@ -143,7 +143,7 @@ int main(void) {
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
     if (!app) { fprintf(stderr, "dwm-dashboard: could not open an X11 window\n"); return 1; }
     ui = cui_app_ui(app);
-    style(ui); load_monospace(ui); cui_persian_fallback(ui);
+    style(ui); load_monospace(ui); cui_persian_fallback(ui, getenv("DWM_DASHBOARD_FONT") && *getenv("DWM_DASHBOARD_FONT"));
     if (pthread_create(&backend.thread, NULL, worker, NULL) != 0) {
         fprintf(stderr, "dwm-dashboard: unable to start worker\n"); cui_app_destroy(app); return 1;
     }
