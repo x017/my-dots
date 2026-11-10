@@ -36,6 +36,7 @@ int main(void) {
     Pixmap shape = rounded_mask(&b, 1, W, H, POPUP_RADIUS, 0);
     Pixmap outline = rounded_mask(&b, 1, W, H, POPUP_RADIUS, POPUP_BORDER);
     assert(shape && outline);
+    assert(POPUP_BORDER == 1);
     for (int y = 0; y < H; y++) {
         int count = 0;
         for (int x = 0; x < W; x++) {
@@ -51,6 +52,7 @@ int main(void) {
     }
     assert(!maps[outline][H/2][W/2]);
     assert(maps[outline][0][W/2] && maps[outline][H-1][W/2]);
+    assert(!maps[outline][1][W/2] && !maps[outline][H-2][W/2]);
     puts("outline shares the window shape and is continuous around corners");
     return 0;
 }

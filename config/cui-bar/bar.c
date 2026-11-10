@@ -39,7 +39,7 @@
 #define SIDE_GAP 10
 #define RADIUS 8
 #define POPUP_RADIUS 14
-#define POPUP_BORDER 2
+#define POPUP_BORDER 1
 #define ICON_SIZE 18
 #define ICON_SLOT 30
 #define MAX_ICONS 64
@@ -925,7 +925,7 @@ static int draw_popup(Bar *b) {
     XPutImage(b->dpy, b->popup, b->gc, image, 0, 0, 0, 0, b->popup_width, b->popup_height);
     if (b->popup_outline) {
         XSetClipMask(b->dpy, b->gc, b->popup_outline);
-        XSetForeground(b->dpy, b->gc, 0x7fa8c9);
+        XSetForeground(b->dpy, b->gc, 0x2d3035);
         XFillRectangle(b->dpy, b->popup, b->gc, 0, 0, b->popup_width, b->popup_height);
         XSetClipMask(b->dpy, b->gc, None);
     }
