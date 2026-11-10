@@ -3,6 +3,7 @@
 #ifndef DWM_LAUNCHER_EXEC_H
 #define DWM_LAUNCHER_EXEC_H
 #include <stddef.h>
+#include <string.h>
 
 #define LAUNCHER_ARGV 32
 #define LAUNCHER_ARG 256
