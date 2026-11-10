@@ -20,8 +20,11 @@ static void cui_persian_fallback(cui_ctx *ui, int keep_text_font) {
             char query[64];
             snprintf(query, sizeof query, "%s:style=Regular", families[i]);
             vazir_cmd[3] = query;
-            if (run_command(vazir_cmd, NULL, result, sizeof result, 2000) != 0 ||
-                !(end = strchr(result, '\n'))) continue;
+            /* SIGCHLD may be ignored by dwm/the bar, in which case waitpid
+             * reports ECHILD even for successful commands. Validate the
+             * returned family and readable file instead of the exit code. */
+            run_command(vazir_cmd, NULL, result, sizeof result, 2000);
+            if (!(end = strchr(result, '\n'))) continue;
             *end++ = '\0';
             if (!strcasecmp(result, families[i])) {
                 char *newline = strchr(end, '\n');
@@ -32,9 +35,8 @@ static void cui_persian_fallback(cui_ctx *ui, int keep_text_font) {
                 }
             }
         }
-        if (run_command(cmd, NULL, path, sizeof path, 2000) == 0) {
-            if ((end = strchr(path, '\n'))) *end = '\0';
-        }
+        run_command(cmd, NULL, path, sizeof path, 2000);
+        if ((end = strchr(path, '\n'))) *end = '\0';
         if (!path[0] || access(path, R_OK) != 0) {
             path[0] = '\0';
             for (size_t i = 0; i < sizeof common / sizeof common[0]; i++)

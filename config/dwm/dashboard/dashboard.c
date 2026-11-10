@@ -118,9 +118,12 @@ static void load_monospace(cui_ctx *ui) {
     const char *override = getenv("DWM_DASHBOARD_FONT");
     cui_font font = -1;
     if (override && *override) font = cui_font_load_file(ui, override);
-    else if (run_command(cmd, NULL, path, sizeof path, 2000) == 0) {
+    else {
+        /* dwm may ignore SIGCHLD; validate fc-match output even if waitpid
+         * cannot obtain the child's status. */
+        run_command(cmd, NULL, path, sizeof path, 2000);
         if ((end = strchr(path, '\n'))) *end = '\0';
-        if (*path) font = cui_font_load_file(ui, path);
+        if (*path && access(path, R_OK) == 0) font = cui_font_load_file(ui, path);
     }
     if (font < 0) font = CUI_FONT_MONO;
     cui_font_set_role(ui, CUI_FONT_BODY, font);
