@@ -200,9 +200,8 @@ config/dwm, fetch and build the pinned CUI revision, then build dwm:
     make CUI=1
     sudo make CUI=1 install
 
-Restart dwm after installation. The CUI version prefers installed Vazirmatn or Vazir, or
-uses the system monospace font via fc-match and CUI's built-in mono;
-DWM_DASHBOARD_FONT may name
+Restart dwm after installation. The CUI version uses the system monospace font
+via fc-match, falling back to CUI's built-in mono; DWM_DASHBOARD_FONT may name
 a font file. Its optional settings buttons launch nm-connection-editor,
 blueman-manager, and pavucontrol when installed. The standalone CUI build
 remains available for independent testing, but is not needed by the binding.
@@ -213,15 +212,10 @@ Persian text
 The CUI bar, its dashboard and the optional CUI dashboard build with Arabic
 text shaping enabled. Install a Persian-capable TrueType/OpenType font (such as
 DejaVu Sans or Noto Sans Arabic) and fontconfig's fc-match. The UIs select a
-Persian fallback with fc-match; CUI_PERSIAN_FONT can instead name the fallback
-font file. When Vazirmatn or Vazir is installed and visible to fontconfig, it is preferred
-for UI text (including Latin); run fc-cache -f if it was just installed. Explicit
-CUI_BAR_FONT and DWM_DASHBOARD_FONT settings retain priority in their respective
-contexts. Native dwm panels (including Alt+Tab, wallpaper and the native dashboard) use
+Persian fallback with fc-match; CUI_PERSIAN_FONT can instead name the font file.
+Native dwm panels (including Alt+Tab, wallpaper and the native dashboard) use
 FriBidi for Persian joining and bidirectional ordering when libfribidi.so.0 is
-installed. Native panels also prefer Vazirmatn or Vazir over their default monospace font
-when it is installed, without replacing a custom configured first font. Install
-the FriBidi runtime package and rebuild/restart dwm.
+installed. Install the FriBidi runtime package and rebuild/restart dwm.
 Without it, the native panels retain their previous unshaped rendering.
 This adds text rendering, not a Persian translation of the interface. CUI's
 editable fields currently do not implement RTL caret navigation or shaping;

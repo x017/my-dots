@@ -118,12 +118,9 @@ static void load_monospace(cui_ctx *ui) {
     const char *override = getenv("DWM_DASHBOARD_FONT");
     cui_font font = -1;
     if (override && *override) font = cui_font_load_file(ui, override);
-    else {
-        /* dwm may ignore SIGCHLD; validate fc-match output even if waitpid
-         * cannot obtain the child's status. */
-        run_command(cmd, NULL, path, sizeof path, 2000);
+    else if (run_command(cmd, NULL, path, sizeof path, 2000) == 0) {
         if ((end = strchr(path, '\n'))) *end = '\0';
-        if (*path && access(path, R_OK) == 0) font = cui_font_load_file(ui, path);
+        if (*path) font = cui_font_load_file(ui, path);
     }
     if (font < 0) font = CUI_FONT_MONO;
     cui_font_set_role(ui, CUI_FONT_BODY, font);
@@ -146,7 +143,7 @@ int main(void) {
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
     if (!app) { fprintf(stderr, "dwm-dashboard: could not open an X11 window\n"); return 1; }
     ui = cui_app_ui(app);
-    style(ui); load_monospace(ui); cui_persian_fallback(ui, getenv("DWM_DASHBOARD_FONT") && *getenv("DWM_DASHBOARD_FONT"));
+    style(ui); load_monospace(ui); cui_persian_fallback(ui);
     if (pthread_create(&backend.thread, NULL, worker, NULL) != 0) {
         fprintf(stderr, "dwm-dashboard: unable to start worker\n"); cui_app_destroy(app); return 1;
     }

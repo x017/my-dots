@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
 
@@ -141,41 +140,10 @@ xfont_free(Fnt *font)
 	free(font);
 }
 
-/* Fontconfig substitutes another family for a missing name. Check the
- * actual match, preferring Vazirmatn, then the older Vazir family. */
-static const char *
-preferred_persian_font(void)
-{
-    static int searched;
-    static const char *chosen;
-    static const char *families[] = {"Vazirmatn", "Vazir"};
-    static const char *patterns[] = {"Vazirmatn:size=10", "Vazir:size=10"};
-    if (searched) return chosen;
-    searched = 1;
-    for (size_t i = 0; i < sizeof families / sizeof families[0]; i++) {
-        FcPattern *pattern = FcNameParse((const FcChar8 *)patterns[i]), *match;
-        FcChar8 *family;
-        FcResult result;
-        if (!pattern) continue;
-        FcConfigSubstitute(NULL, pattern, FcMatchPattern);
-        FcDefaultSubstitute(pattern);
-        match = FcFontMatch(NULL, pattern, &result);
-        if (match) {
-            if (FcPatternGetString(match, FC_FAMILY, 0, &family) == FcResultMatch &&
-                !strcasecmp((const char *)family, families[i])) chosen = patterns[i];
-            FcPatternDestroy(match);
-        }
-        FcPatternDestroy(pattern);
-        if (chosen) break;
-    }
-    return chosen;
-}
-
 Fnt*
 drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 {
 	Fnt *cur, *ret = NULL;
-	const char *preferred;
 	size_t i;
 
 	if (!drw || !fonts)
@@ -186,14 +154,6 @@ drw_fontset_create(Drw* drw, const char *fonts[], size_t fontcount)
 			cur->next = ret;
 			ret = cur;
 		}
-	}
-	/* Preserve a custom configured first font. The built-in native panels
-	 * default to monospace; prefer installed Vazirmatn or Vazir. */
-	if (fontcount && !strcmp(fonts[0], "monospace:size=10") &&
-	    (preferred = preferred_persian_font()) &&
-	    (cur = xfont_create(drw, preferred, NULL))) {
-		cur->next = ret;
-		ret = cur;
 	}
 	return (drw->fonts = ret);
 }

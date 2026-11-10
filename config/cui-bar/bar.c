@@ -649,7 +649,7 @@ static void open_popup(Bar *b, int page) {
     style(b->popup_ui);
     cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
-    cui_persian_fallback(b->popup_ui, 0);
+    cui_persian_fallback(b->popup_ui);
     b->popup_width = width; b->popup_height = height; b->popup_monitor = p->id;
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page == 5 ? 4 : page;
     popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4; b->popup_notifications = page == 6;
@@ -1265,7 +1265,7 @@ static void hover_panel(Bar *b, int index, int x) {
     b->tooltip_kind = kind; b->tooltip_panel = index; b->tooltip_width = width; b->tooltip_height = height;
     iface = cui_sw_iface(b->renderer); b->tooltip_ui = cui_create(&(cui_ctx_desc){.renderer = iface, .theme = CUI_THEME_DARK});
     if (!b->tooltip_ui) { close_tooltip(b); use_panel(b, 0); return; }
-    cui_persian_fallback(b->tooltip_ui, 0);
+    cui_persian_fallback(b->tooltip_ui);
     XMapRaised(b->dpy, b->tooltip); if (!draw_tooltip(b)) close_tooltip(b);
     use_panel(b, 0);
 }
@@ -1363,7 +1363,7 @@ int main(void) {
             if (id >= 0) cui_font_set_role(b.ui, CUI_FONT_MONO, id);
         }
     }
-    cui_persian_fallback(b.ui, getenv("CUI_BAR_FONT") && *getenv("CUI_BAR_FONT"));
+    cui_persian_fallback(b.ui);
     if (!acquire_tray(&b)) { result = 1; goto cleanup; }
     XSelectInput(b.dpy, b.root, PropertyChangeMask | StructureNotifyMask);
     read_workspace(&b);
