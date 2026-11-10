@@ -63,7 +63,7 @@ static void *worker(void *unused) {
         if (has_request) {
             int rc;
             message[0] = 0; dashboard_action_error[0] = 0;
-            if (request.type == ACT_DISPLAY_APPLY)
+            if (request.type >= ACT_DISPLAY_APPLY)
                 rc = desktop_execute(&request, message, sizeof message);
             else rc = execute(&request);
             if (rc == 0 && !message[0]) copystr(message, sizeof message, "Done.");

@@ -25,7 +25,7 @@ all: dwm
 	${CC} -c ${CFLAGS} $<
 
 ${OBJ}: config.h config.mk
-dwm.o: dashboard_native.h dashboard_backend.h screenshot.h screenshot_geometry.h screenshot_pixel.h screenshot_png.h
+dwm.o: dashboard_native.h dashboard_backend.h screenshot.h screenshot_dir.h screenshot_geometry.h screenshot_pixel.h screenshot_png.h
 drw.o: persian_text.h
 
 config.h:
@@ -40,7 +40,7 @@ clean:
 dist: clean
 	mkdir -p dwm-${VERSION}
 	cp -R LICENSE Makefile README config.def.h config.mk\
-		dwm.1 drw.h util.h dashboard_backend.h dashboard_native.h ${SRC} dwm.png transient.c persian_text.h screenshot.h screenshot_geometry.h screenshot_pixel.h screenshot_png.h dwm-${VERSION}
+		dwm.1 drw.h util.h dashboard_backend.h dashboard_native.h ${SRC} dwm.png transient.c persian_text.h screenshot.h screenshot_dir.h screenshot_geometry.h screenshot_pixel.h screenshot_png.h dwm-${VERSION}
 	cp -R dashboard dwm-${VERSION}/
 	tar -cf dwm-${VERSION}.tar dwm-${VERSION}
 	gzip dwm-${VERSION}.tar

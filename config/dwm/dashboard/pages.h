@@ -1,9 +1,9 @@
 /* CUI control-center widgets shared in behavior with dwm dashboard. */
 typedef struct {
     char selected_wifi[32], selected_bt[32], password[256];
-    char display_output[128];
+    char display_output[128], display_target[128];
     float volume;
-    int page, initialized_volume, volume_pending;
+    int page, initialized_volume, volume_pending, display_layout, display_scale;
 } UIState;
 
 /* Match the native Alt+Tab switcher palette in dwm.c. */

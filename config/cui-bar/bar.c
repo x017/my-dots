@@ -238,7 +238,7 @@ static void worker(int fd) {
                 used += (size_t)n;
             }
             int rc; message[0] = 0; dashboard_action_error[0] = 0;
-            if (req.type == ACT_DISPLAY_APPLY) {
+            if (req.type >= ACT_DISPLAY_APPLY) {
                 message[0] = 0; rc = desktop_execute(&req, message, sizeof message); next_desktop = 0;
             } else rc = execute(&req);
             if (rc && !message[0]) {
@@ -246,7 +246,7 @@ static void worker(int fd) {
                 else if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
                 else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
                 else copystr(message, sizeof message, "Action failed. Check device and permissions.");
-            } else if (!rc && req.type != ACT_DISPLAY_APPLY) copystr(message, sizeof message, "Done.");
+            } else if (!rc && req.type < ACT_DISPLAY_APPLY) copystr(message, sizeof message, "Done.");
             wipe(&req, sizeof req);
             frame.completed++;
         }

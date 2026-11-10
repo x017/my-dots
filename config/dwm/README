@@ -99,24 +99,33 @@ switcher does not change Hyprland's wallpaper configuration.
 
 Screenshots
 -----------
-Two native dwm tools are bound to the Print Screen key; both save PNG files and
-need no external screenshot program.
+Two native dwm tools are bound to the Print Screen key. Both copy the image to
+the X11 clipboard and save a PNG file; neither needs an external screenshot
+program.
 
-* Print opens a dwm popup listing every connected display with its resolution
-  and position. Arrow keys or j/k move, Enter or a click captures that whole
-  monitor, Escape cancels.
+* Print captures a whole display. With two or more monitors it opens a dwm
+  popup whose cards show a live preview of each display, drawn from the same
+  XComposite previews as the monitor switcher. Arrows, Tab or a click choose
+  one, Enter or a click captures it, Escape cancels. With exactly one monitor
+  there is no popup: that monitor is captured immediately.
 * Shift+Print switches to a crosshair and lets you drag a rectangle anywhere on
   the combined desktop. Release the left button to capture the selection; the
   right button or Escape cancels. A two-pixel frame marks the selection.
+
+The image is offered on the clipboard as image/png (with the file as
+text/uri-list and UTF8_STRING), so it can be pasted straight into a browser,
+chat or editor. The capture child owns CLIPBOARD until another application
+takes it over or half an hour passes, which is how xclip behaves; large
+screenshots are transferred with the INCR protocol.
 
 Files are written to ~/Pictures/Screenshots with the name
 `Screenshot_<date>_<time>_<pid>_<n>.png`. Set DWM_SCREENSHOT_DIR to an absolute
 path to save somewhere else. Encoding uses zlib's libz.so.1, loaded at runtime;
 without it the capture reports the failure through notify-send instead of
-writing a broken file. The grab and capture run in a short-lived child with its
-own X connection, so dwm keeps managing windows while a large screenshot is
-written. If notify-send is installed, a notification reports the saved path or
-the reason a capture failed.
+writing a broken file. The grab, encoding and clipboard ownership run in a
+short-lived child with its own X connection, so dwm keeps managing windows
+while a large screenshot is written. If notify-send is installed, a
+notification reports the saved path or the reason a capture failed.
 
 Display modes, keyboard layout and wallpaper restore
 ----------------------------------------------------
@@ -255,10 +264,24 @@ DWM_NO_CUI_BAR=1 before starting dwm to disable automatic launch.
 
 See ../cui-bar/README for build instructions, controls, and limitations.
 
-The CUI dashboard and the bar's control popup also include a display mode
-page. Display changes use xrandr and the same saved per-output configuration
-as the native switcher. Wallpaper selection remains in the native picker and
-uses feh and its ~/.fehbg.
+The CUI dashboard and the bar's control popup include a full monitor section
+built on xrandr. It draws the connected displays to scale in their real
+relative positions, so the arrangement is visible; clicking a rectangle selects
+that monitor. For the selected monitor it offers:
+
+* Extend or Mirror, against a second monitor of your choice. Extend places the
+  selected output left of, right of, above or below the other one; Mirror makes
+  both show the same picture.
+* Primary monitor, an Enabled switch (--auto / --off), rotation
+  (normal/left/right/inverted) and fractional UI scale presets (100-200%).
+* The resolution and refresh-rate list.
+
+Resolution changes are saved in the same per-output refreshrate.conf the native
+switcher uses and are restored by `dwm --apply-display-settings`. Arrangement,
+rotation, scale, primary and power apply immediately but are not restored at
+login, because that file only records a mode per output.
+
+Wallpaper selection remains in the native picker and uses feh and its ~/.fehbg.
 The native wallpaper picker previews images with Imlib2 (including its image
 loaders), and remains open after applying so another can be selected. If the
 default folder is empty it also checks ~/Pictures/Wallpapers,

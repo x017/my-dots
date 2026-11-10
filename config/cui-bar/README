@@ -131,12 +131,20 @@ Xinerama reports as one screen will be treated as one monitor by dwm.
 
 Display and wallpaper controls
 ------------------------------
-Display modes use xrandr and save successful changes in the same
-refreshrate.conf used by dwm's display switcher. Wallpaper selection remains
-in the native dwm picker (Alt+Shift+W); it needs feh, Imlib2 and the Imlib2
-loaders for the image formats used. It reads DWM_WALLPAPERS_DIR or
-~/Downloads/wallpaper (with common Pictures/wallpapers fallbacks if empty).
-The bar does not implement wallpaper controls.
+The Displays section is a full monitor manager on xrandr. It draws the
+connected displays to scale in their real relative positions and lets you click
+one to manage it. For the selected monitor it offers Extend or Mirror against a
+second monitor (place it left of, right of, above or below, or mirror it), a
+Primary monitor switch, an Enabled switch, rotation, fractional UI scale
+presets, and the resolution and refresh-rate list. Resolution changes are saved
+in the same refreshrate.conf used by dwm's display switcher and restored by
+`dwm --apply-display-settings`; arrangement, rotation, scale, primary and power
+apply immediately but are not restored at login.
+
+Wallpaper selection remains in the native dwm picker (Alt+Shift+W); it needs
+feh, Imlib2 and the Imlib2 loaders for the image formats used. It reads
+DWM_WALLPAPERS_DIR or ~/Downloads/wallpaper (with common Pictures/wallpapers
+fallbacks if empty). The bar does not implement wallpaper controls.
 
 Bluetooth authorization
 -----------------------
