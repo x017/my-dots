@@ -68,6 +68,7 @@ static const Rule rules[] = {
     {NULL, "blueberry", NULL, 0, 1, -1},
     {NULL, "nm-connection-editor", NULL, 0, 1, -1},
     {NULL, "Dwm Control Center", NULL, 0, 1, -1},
+    {NULL, "Dwm Launcher", NULL, 0, 1, -1},
 };
 
 /* layout(s) */
@@ -106,12 +107,19 @@ static const char *dmenucmd[] = {
     "dmenu_run", "-m",    dmenumon, "-fn",  dmenufont, "-nb",  norm_bg,
     "-nf",       norm_fg, "-sb",    sel_bg, "-sf",     sel_fg, NULL};
 static const char *termcmd[] = {"ghostty", NULL};
+#ifndef DWM_CUI
+/* With CUI=1 the native command-palette launcher takes Alt+P instead. */
 static const char *roficmd[] = {"rofi", "-show", "drun", NULL};
+#endif
 static const char *powercmd[] = {"mel", "--power", NULL};
 static const char *lockcmd[] = {"mel", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
+#ifdef DWM_CUI
+    {MODKEY, XK_p, applauncher, {0}},
+#else
     {MODKEY, XK_p, spawn, {.v = roficmd}},
+#endif
     {MODKEY, XK_q, spawn, {.v = termcmd}},
     {MODKEY, XK_j, focusstack, {.i = +1}},
     {MODKEY, XK_k, focusstack, {.i = -1}},

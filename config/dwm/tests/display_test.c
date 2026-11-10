@@ -3,6 +3,7 @@
  * command lines are checked. */
 #define _DEFAULT_SOURCE
 #define DASHBOARD_NO_SNAPSHOT
+#define DASHBOARD_NO_ACTIONS
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>

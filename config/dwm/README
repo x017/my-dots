@@ -194,6 +194,24 @@ after a wallpaper is chosen; dwm does not create or overwrite it at startup.
 Dwm does not install dependencies or rebuild itself. Setup failures are
 reported in the session log; startup continues where possible.
 
+Application launcher
+--------------------
+Alt+P opens a native application launcher built on CUI's command palette, so it
+uses the same colours, fonts and search behaviour as the control center and the
+Alt+Tab switcher. It reads the freedesktop menu from
+$XDG_DATA_HOME/applications (defaulting to ~/.local/share) and from every
+directory in $XDG_DATA_DIRS, honours NoDisplay, Hidden, TryExec and localized
+Name[locale] entries, groups the results by their main category and
+fuzzy-searches the visible list. Enter starts the entry, Escape closes the
+launcher, and an entry whose Exec is marked Terminal=true is started through
+$TERMINAL, or Ghostty when that variable is unset. Field codes in Exec are
+expanded per the Desktop Entry Specification and the command is executed
+directly, never through a shell.
+
+The launcher needs the CUI build described below; it is compiled into dwm and
+runs in a forked child like the CUI control center. When dwm is built without
+CUI=1, Alt+P keeps running rofi instead.
+
 Control center comparison
 -------------------------
 Two versions are available for testing. Both are compiled into dwm, not
@@ -226,6 +244,7 @@ config/dwm, fetch and build the pinned CUI revision, then build dwm:
 
     cmake -S dashboard -B dashboard/build
     cmake --build dashboard/build --target cui
+    cmake --build dashboard/build --target dwm-launcher
     make clean
     make CUI=1
     sudo make CUI=1 install

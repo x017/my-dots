@@ -185,6 +185,7 @@ static void displaymodeswitcher(const Arg *arg);
 static void dashboardnative(const Arg *arg);
 #ifdef DWM_CUI
 static void dashboardcui(const Arg *arg);
+static void applauncher(const Arg *arg);
 #endif
 static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
@@ -427,6 +428,20 @@ dashboardcui(const Arg *arg)
     setsid();
     signal(SIGCHLD, SIG_DFL);
     _exit(dashboard_cui_main());
+  }
+}
+
+/* The command-palette application launcher, also a forked child. */
+extern int launcher_cui_main(void);
+static void
+applauncher(const Arg *arg)
+{
+  (void)arg;
+  if (fork() == 0) {
+    close(ConnectionNumber(dpy));
+    setsid();
+    signal(SIGCHLD, SIG_DFL);
+    _exit(launcher_cui_main());
   }
 }
 #endif

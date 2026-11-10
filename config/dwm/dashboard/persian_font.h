@@ -1,6 +1,7 @@
 /* Add a system Persian font without replacing the existing UI/icon fonts. */
 #ifndef DWM_CUI_PERSIAN_FONT_H
 #define DWM_CUI_PERSIAN_FONT_H
+#include "../command_run.h"
 static void cui_persian_fallback(cui_ctx *ui) {
     static int searched;
     static char path[2048];

@@ -11,12 +11,15 @@ OBJ = ${SRC:.c=.o}
 ifeq ($(CUI),1)
 CUI_DIR = dashboard/build/_deps/cui-src
 CUI_LIB = dashboard/build/_deps/cui-build/libcui.a
-OBJ += dashboard/cui-embedded.o
+OBJ += dashboard/cui-embedded.o dashboard/launcher-embedded.o
 CFLAGS += -DDWM_CUI -I$(CUI_DIR)/include
 LDFLAGS += $(CUI_LIB) -pthread -lm
 
-dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/persian_font.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h $(CUI_LIB)
+dashboard/cui-embedded.o: dashboard/dashboard.c dashboard/pages.h dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/desktop_controls.h dashboard/desktop_pages.h dashboard_backend.h command_run.h $(CUI_LIB)
 	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/dashboard.c
+
+dashboard/launcher-embedded.o: dashboard/launcher.c dashboard/theme.h dashboard/ui_fonts.h dashboard/persian_font.h dashboard/launcher_exec.h dashboard/launcher_apps.h command_run.h $(CUI_LIB)
+	$(CC) -c $(CFLAGS) -DDWM_EMBEDDED_CUI -o $@ dashboard/launcher.c
 endif
 
 all: dwm
@@ -35,7 +38,7 @@ dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f dwm ${OBJ} dashboard/cui-embedded.o dwm-${VERSION}.tar.gz
+	rm -f dwm ${OBJ} dashboard/cui-embedded.o dashboard/launcher-embedded.o dwm-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p dwm-${VERSION}
