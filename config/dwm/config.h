@@ -142,6 +142,8 @@ static const Key keys[] = {
     {MODKEY | ControlMask | ShiftMask, XK_d, dashboardcui, {0}},
 #endif
     {MODKEY | ShiftMask, XK_w, wallpaperswitcher, {0}},
+    {0, XK_Print, screenshotmonitor, {0}},
+    {ShiftMask, XK_Print, screenshotarea, {0}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},
     {MODKEY, XK_Up, focusdir, {.i = 2}},

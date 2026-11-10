@@ -178,6 +178,8 @@ typedef struct {
 /* function declarations */
 static void alttab(const Arg *arg);
 static void wallpaperswitcher(const Arg *arg);
+static void screenshotmonitor(const Arg *arg);
+static void screenshotarea(const Arg *arg);
 static void togglekeyboardgroup(const Arg *arg);
 static void displaymodeswitcher(const Arg *arg);
 static void dashboardnative(const Arg *arg);
@@ -497,6 +499,8 @@ displaypick(const char *title, char **items, int count)
   drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3); drw_free(d);
   return result;
 }
+
+#include "screenshot.h"
 
 /* The same three-column format used by the original refreshmenu script. */
 static int

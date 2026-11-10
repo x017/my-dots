@@ -97,6 +97,27 @@ path in the environment before starting dwm. Missing or unreadable folders
 are reported in the popup; create the folder and press R to retry. The
 switcher does not change Hyprland's wallpaper configuration.
 
+Screenshots
+-----------
+Two native dwm tools are bound to the Print Screen key; both save PNG files and
+need no external screenshot program.
+
+* Print opens a dwm popup listing every connected display with its resolution
+  and position. Arrow keys or j/k move, Enter or a click captures that whole
+  monitor, Escape cancels.
+* Shift+Print switches to a crosshair and lets you drag a rectangle anywhere on
+  the combined desktop. Release the left button to capture the selection; the
+  right button or Escape cancels. A two-pixel frame marks the selection.
+
+Files are written to ~/Pictures/Screenshots with the name
+`Screenshot_<date>_<time>_<pid>_<n>.png`. Set DWM_SCREENSHOT_DIR to an absolute
+path to save somewhere else. Encoding uses zlib's libz.so.1, loaded at runtime;
+without it the capture reports the failure through notify-send instead of
+writing a broken file. The grab and capture run in a short-lived child with its
+own X connection, so dwm keeps managing windows while a large screenshot is
+written. If notify-send is installed, a notification reports the saved path or
+the reason a capture failed.
+
 Display modes, keyboard layout and wallpaper restore
 ----------------------------------------------------
 Alt+Shift+R opens a native dwm popup: select a connected monitor, then a
