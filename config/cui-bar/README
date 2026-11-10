@@ -61,7 +61,8 @@ URI schemes are not fetched. If artwork or `curl` is unavailable, initials
 are shown instead. Long titles scroll, and the small bars animate while playing. Notification alerts briefly replace the track text for
 three seconds before it returns. Clicking the bell or track opens a panel with media
 controls and recent notifications directly beneath the island (or right-aligned
-when the island does not fit). The island worker polls roughly every 500 ms,
+when the island does not fit). The dashboard and island panel share a thin
+muted blue outline; the calendar and hover panels retain their original edges. The island worker polls roughly every 500 ms,
 plus the time needed to run its commands. The notification part integrates with a
 running Dunst daemon via `dunstctl` (and `busctl` for history); it does not
 start or replace a notification daemon. A separate `busctl --user` monitor

@@ -862,6 +862,26 @@ static void notifications_page(cui_ctx *ui, Bar *b) {
         }
     }
 }
+/* Only the dashboard and island panel receive the blue perimeter; calendar
+ * and hover pages keep their original borders. The clipping container paints
+ * its outline after children so scrolling content cannot cover it. */
+static void popup_contents(cui_ctx *ui, Bar *b) {
+    if (!b->popup_calendar) {
+        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .clip = true,
+                   .border = 1, .border_color = CUI_RGB(0x7fa8c9), .radius = 14) {
+            if (b->popup_notifications) notifications_page(ui, b);
+            else if (dashboard_shell(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy)) b->popup_page = -1;
+        }
+    } else {
+        cui_scroll(ui, .id = "calendar", .width = CUI_FILL, .height = CUI_FILL, .pad = 10, .gap = 8) {
+            calendar_page(ui, b);
+            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
+                cui_column(ui, .width = CUI_FILL) { cui_secondary(ui, "Local time"); }
+                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
+            }
+        }
+    }
+}
 static int draw_popup(Bar *b) {
     XImage *image;
     cui_ctx *ui = b->popup_ui;
@@ -875,19 +895,7 @@ static int draw_popup(Bar *b) {
     if (!image->data) { XDestroyImage(image); return 0; }
     cui_set_viewport(ui, b->popup_width, b->popup_height, 1);
     cui_begin_frame(ui, 0.05f);
-    if (b->popup_calendar) {
-        cui_scroll(ui, .id = "calendar", .width = CUI_FILL, .height = CUI_FILL, .pad = 10, .gap = 8) {
-            calendar_page(ui, b);
-            cui_row(ui, .width = CUI_FILL, .align = CUI_ALIGN_CENTER) {
-                cui_column(ui, .width = CUI_FILL) { cui_secondary(ui, "Local time"); }
-                if (cui_button(ui, "Close", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_GHOST)) b->popup_page = -1;
-            }
-        }
-    } else if (b->popup_notifications) {
-        notifications_page(ui, b);
-    } else {
-        if (dashboard_shell(ui, &popup_state, &b->snapshot, &b->desktop, b->worker_busy)) b->popup_page = -1;
-    }
+    popup_contents(ui, b);
     cui_end_frame(ui);
     cui_sw_render(b->renderer, cui_get_draw_data(ui), image->data, b->popup_width, b->popup_height, image->bytes_per_line, CUI_SW_BGRA);
     XPutImage(b->dpy, b->popup, b->gc, image, 0, 0, 0, 0, b->popup_width, b->popup_height);
