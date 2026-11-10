@@ -1,0 +1,10 @@
+# CMake build trees (config/cui-bar/build, config/dwm/dashboard/build)
+build/
+
+# dwm objects and binaries
+*.o
+*.a
+*.so
+config/dwm/dwm
+config/dwm/dwm-*.tar.gz
+config/cui-bar/cui-bar
