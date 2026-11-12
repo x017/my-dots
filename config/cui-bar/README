@@ -102,7 +102,8 @@ control radios, adjust/mute audio, and select display resolutions and refresh
 rates; Escape or Close dismisses it. Volume changes made while
 another action runs are retained and sent when the worker becomes free. Right-click
 volume to mute, scroll it to adjust by 2%, or right-click network/Bluetooth to
-toggle the radio directly. Lock launches mel. NetworkManager/nmcli, BlueZ/
+toggle the radio directly. Lock starts mel after preparing the English XKB
+layout and server-side Win+Space shortcut; see ../dwm/README. NetworkManager/nmcli, BlueZ/
 bluetoothctl and PulseAudio or PipeWire/pactl are needed for their respective
 controls. Passwords are sent via a private pipe rather than command arguments;
 WPA enterprise and hidden networks need Network settings. Bluetooth pairing

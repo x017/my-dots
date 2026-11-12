@@ -28,6 +28,7 @@
 #include <sys/select.h>
 #include <time.h>
 #include <unistd.h>
+#include "../dwm/lock_screen.h"
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
 #include "../dwm/dashboard/persian_font.h"
@@ -1322,7 +1323,10 @@ static void clicked(Bar *b, XButtonEvent *e) {
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
     }
     else if (x >= l.clock && x < l.clock + 64 && e->button == Button1) open_popup(b, 4);
-    else if (x >= l.lock && e->button == Button1) launch("mel");
+    else if (x >= l.lock && e->button == Button1) {
+        static const char *const command[] = {"mel", NULL};
+        lock_screen_start(b->dpy, command);
+    }
 }
 
 int main(void) {

@@ -150,6 +150,18 @@ Both layouts must already be configured; the generated autostart sets
 `us,ir` on a fresh setup. Existing autostart files are left untouched. If
 you use different layouts, keep configuring them as you already do.
 
+When locking with Alt+Shift+L or the CUI bar lock button, the lock helper
+selects an installed `us` or `gb` layout before starting mel, so a Persian
+layout does not prevent entering an English password. It also adds the XKB
+`grp:win_space_toggle` option, without clearing existing options, so
+Win+Space is handled by the X server even while mel has grabbed the keyboard.
+The English layout and added option remain active after unlocking; you can
+switch back as usual. `setxkbmap` must be installed for the shortcut to be
+added; if it is missing or fails, mel still starts with the English-layout
+fallback. Custom maps without `_XKB_RULES_NAMES` are left unchanged. For
+other lock triggers, such as xss-lock, use `dwm --lock` instead of `mel` so
+the same preparation runs (the command stays alive until mel exits).
+
 Your old hard-coded `feh --bg-fill ...` autostart line resets the wallpaper
 on every login. Replace it rather than adding another feh command beside it:
 

@@ -54,6 +54,7 @@
 
 #include "drw.h"
 #include "util.h"
+#include "lock_screen.h"
 
 /* macros */
 #define BUTTONMASK (ButtonPressMask | ButtonReleaseMask)
@@ -181,6 +182,7 @@ static void wallpaperswitcher(const Arg *arg);
 static void screenshotmonitor(const Arg *arg);
 static void screenshotarea(const Arg *arg);
 static void togglekeyboardgroup(const Arg *arg);
+static void lockscreen(const Arg *arg);
 static void displaymodeswitcher(const Arg *arg);
 static void dashboardnative(const Arg *arg);
 #ifdef DWM_CUI
@@ -400,6 +402,11 @@ switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
   XSync(dpy, False);
   XSetErrorHandler(oldhandler);
   return ok && !switcher_xerror_seen;
+}
+
+/* Start the lock in a child after preparing XKB; never block dwm. */
+void lockscreen(const Arg *arg) {
+  lock_screen_start(dpy, (const char *const *)arg->v);
 }
 
 /* Switch the XKB group directly; unlike an external helper this does not
@@ -2086,28 +2093,7 @@ void grabbuttons(Client *c, int focused) {
 
 /* setxkbmap publishes five NUL-separated strings on the root window. If
  * XKB already owns Win+Space, leave the key ungrabbed so it cannot toggle
- * twice. No existing keyboard options or startup files are modified. */
-static int
-xkbwinspaceoption(const unsigned char *data, size_t length)
-{
-  size_t start = 0, end;
-  int field;
-  for (field = 0; field < 4; field++) {
-    while (start < length && data[start]) start++;
-    if (start == length) return 0;
-    start++;
-  }
-  while (start < length && data[start]) {
-    end = start;
-    while (end < length && data[end] && data[end] != ',') end++;
-    if (end - start == sizeof("grp:win_space_toggle") - 1 &&
-        !memcmp(data + start, "grp:win_space_toggle", end - start)) return 1;
-    if (end == length || !data[end]) break;
-    start = end + 1;
-  }
-  return 0;
-}
-
+ * twice. Other keyboard options and startup files are left unchanged. */
 static int
 xkbownswinspace(void)
 {
@@ -2118,7 +2104,7 @@ xkbownswinspace(void)
   if (XGetWindowProperty(dpy, root, xkbrules, 0, 4096, False, XA_STRING,
                          &actual, &format, &nitems, &remaining, &data) == Success &&
       actual == XA_STRING && format == 8 && data)
-    found = xkbwinspaceoption(data, nitems);
+    found = lock_xkb_option(data, nitems, "grp:win_space_toggle");
   if (data) XFree(data);
   return found;
 }
@@ -3468,12 +3454,16 @@ static void startstandalonebar(void) {
 }
 
 int main(int argc, char *argv[]) {
+  if (argc == 2 && !strcmp("--lock", argv[1])) {
+    lock_screen_exec(NULL, lockcmd);
+    return EXIT_FAILURE; /* exec only returns on failure */
+  }
   if (argc == 2 && !strcmp("--apply-display-settings", argv[1]))
     return restoredisplaymodes();
   if (argc == 2 && !strcmp("-v", argv[1]))
     die("dwm-" VERSION);
   else if (argc != 1)
-    die("usage: dwm [-v | --apply-display-settings]");
+    die("usage: dwm [-v | --apply-display-settings | --lock]");
   if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
     fputs("warning: no locale support\n", stderr);
   if (!(dpy = XOpenDisplay(NULL)))
