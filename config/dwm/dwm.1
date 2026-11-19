@@ -3,7 +3,7 @@
 dwm \- dynamic window manager
 .SH SYNOPSIS
 .B dwm
-.RB [ \-v ]
+.RB [ \-v | \--apply-display-settings | \--lock ]
 .SH DESCRIPTION
 dwm is a dynamic window manager for X. It manages windows in tiled, monocle
 and floating layouts. Either layout can be applied dynamically, optimising the
@@ -42,6 +42,10 @@ Either of these files may be omitted.
 .TP
 .B \-v
 prints version information to stderr, then exits.
+.TP
+.B \--lock
+prepares the XKB layout and starts the configured screen locker without starting
+another window manager. Suitable for use with xss-lock.
 .SH USAGE
 .SS Status bar
 .TP

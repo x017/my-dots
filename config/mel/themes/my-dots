@@ -1,0 +1,13 @@
+# Matches the dwm/CUI bar's dark slate palette.
+panel_color = #121417
+panel_border_color = #2d3035
+background_color = #090b0d
+gradient_start = #090b0d
+gradient_end = #202b35
+clock_color = #e9eff6
+date_color = #8a949e
+input_color = #181a1e
+input_text_color = #adbac7
+caps_lock_color = #b86a6a
+accent_color = #7fa8c9
+success_color = #89ba9d

@@ -28,8 +28,10 @@
 #include <sys/select.h>
 #include <time.h>
 #include <unistd.h>
+#include "../dwm/lock_screen.h"
 #include "../dwm/dashboard_backend.h"
 #include "../dwm/dashboard/desktop_controls.h"
+#include "../dwm/dashboard/persian_font.h"
 #include "island.h"
 #include "notification_live.h"
 #include "album_fetch.h"
@@ -237,7 +239,7 @@ static void worker(int fd) {
                 used += (size_t)n;
             }
             int rc; message[0] = 0; dashboard_action_error[0] = 0;
-            if (req.type == ACT_DISPLAY_APPLY) {
+            if (req.type >= ACT_DISPLAY_APPLY) {
                 message[0] = 0; rc = desktop_execute(&req, message, sizeof message); next_desktop = 0;
             } else rc = execute(&req);
             if (rc && !message[0]) {
@@ -245,7 +247,7 @@ static void worker(int fd) {
                 else if (req.type == ACT_WIFI_CONNECT) copystr(message, sizeof message, "Connection failed. Check password or NetworkManager.");
                 else if (req.type == ACT_BT_PAIR) copystr(message, sizeof message, "Pairing failed. A Bluetooth pairing agent may be required.");
                 else copystr(message, sizeof message, "Action failed. Check device and permissions.");
-            } else if (!rc && req.type != ACT_DISPLAY_APPLY) copystr(message, sizeof message, "Done.");
+            } else if (!rc && req.type < ACT_DISPLAY_APPLY) copystr(message, sizeof message, "Done.");
             wipe(&req, sizeof req);
             frame.completed++;
         }
@@ -648,6 +650,7 @@ static void open_popup(Bar *b, int page) {
     style(b->popup_ui);
     cui_font_set_role(b->popup_ui, CUI_FONT_BODY, CUI_FONT_MONO);
     cui_font_set_role(b->popup_ui, CUI_FONT_MEDIUM, CUI_FONT_MONO);
+    cui_persian_fallback(b->popup_ui);
     b->popup_width = width; b->popup_height = height; b->popup_monitor = p->id;
     memset(&popup_state, 0, sizeof popup_state); popup_state.page = page == 5 ? 4 : page;
     popup_bar = b; b->popup_dirty = 1; b->calendar_offset = 0; b->popup_calendar = page == 4; b->popup_notifications = page == 6;
@@ -1263,6 +1266,7 @@ static void hover_panel(Bar *b, int index, int x) {
     b->tooltip_kind = kind; b->tooltip_panel = index; b->tooltip_width = width; b->tooltip_height = height;
     iface = cui_sw_iface(b->renderer); b->tooltip_ui = cui_create(&(cui_ctx_desc){.renderer = iface, .theme = CUI_THEME_DARK});
     if (!b->tooltip_ui) { close_tooltip(b); use_panel(b, 0); return; }
+    cui_persian_fallback(b->tooltip_ui);
     XMapRaised(b->dpy, b->tooltip); if (!draw_tooltip(b)) close_tooltip(b);
     use_panel(b, 0);
 }
@@ -1319,7 +1323,10 @@ static void clicked(Bar *b, XButtonEvent *e) {
             audio_action(b, b->snapshot.bluetooth_enabled ? ACT_BT_OFF : ACT_BT_ON, 0);
     }
     else if (x >= l.clock && x < l.clock + 64 && e->button == Button1) open_popup(b, 4);
-    else if (x >= l.lock && e->button == Button1) launch("mel");
+    else if (x >= l.lock && e->button == Button1) {
+        static const char *const command[] = {"mel", NULL};
+        lock_screen_start(b->dpy, command);
+    }
 }
 
 int main(void) {
@@ -1360,6 +1367,7 @@ int main(void) {
             if (id >= 0) cui_font_set_role(b.ui, CUI_FONT_MONO, id);
         }
     }
+    cui_persian_fallback(b.ui);
     if (!acquire_tray(&b)) { result = 1; goto cleanup; }
     XSelectInput(b.dpy, b.root, PropertyChangeMask | StructureNotifyMask);
     read_workspace(&b);

@@ -68,6 +68,7 @@ static const Rule rules[] = {
     {NULL, "blueberry", NULL, 0, 1, -1},
     {NULL, "nm-connection-editor", NULL, 0, 1, -1},
     {NULL, "Dwm Control Center", NULL, 0, 1, -1},
+    {NULL, "Dwm Launcher", NULL, 0, 1, -1},
 };
 
 /* layout(s) */
@@ -106,12 +107,19 @@ static const char *dmenucmd[] = {
     "dmenu_run", "-m",    dmenumon, "-fn",  dmenufont, "-nb",  norm_bg,
     "-nf",       norm_fg, "-sb",    sel_bg, "-sf",     sel_fg, NULL};
 static const char *termcmd[] = {"ghostty", NULL};
+#ifndef DWM_CUI
+/* With CUI=1 the native command-palette launcher takes Alt+P instead. */
 static const char *roficmd[] = {"rofi", "-show", "drun", NULL};
+#endif
 static const char *powercmd[] = {"mel", "--power", NULL};
 static const char *lockcmd[] = {"mel", NULL};
 static const Key keys[] = {
     /* modifier                     key        function        argument */
+#ifdef DWM_CUI
+    {MODKEY, XK_p, applauncher, {0}},
+#else
     {MODKEY, XK_p, spawn, {.v = roficmd}},
+#endif
     {MODKEY, XK_q, spawn, {.v = termcmd}},
     {MODKEY, XK_j, focusstack, {.i = +1}},
     {MODKEY, XK_k, focusstack, {.i = -1}},
@@ -126,7 +134,7 @@ static const Key keys[] = {
     {MODKEY, XK_space, setlayout, {0}},
     {MODKEY | ShiftMask, XK_space, togglefloating, {0}},
     {MODKEY, XK_0, view, {.ui = ~0}},
-    {MODKEY | ShiftMask, XK_l, spawn, {.v = lockcmd}},
+    {MODKEY | ShiftMask, XK_l, lockscreen, {.v = lockcmd}},
     {MODKEY | ShiftMask, XK_0, tag, {.ui = ~0}},
     {MODKEY, XK_comma, focusmon, {.i = -1}},
     {MODKEY, XK_period, focusmon, {.i = +1}},
@@ -142,6 +150,8 @@ static const Key keys[] = {
     {MODKEY | ControlMask | ShiftMask, XK_d, dashboardcui, {0}},
 #endif
     {MODKEY | ShiftMask, XK_w, wallpaperswitcher, {0}},
+    {0, XK_Print, screenshotmonitor, {0}},
+    {ShiftMask, XK_Print, screenshotarea, {0}},
     {MODKEY, XK_Left, focusdir, {.i = 0}},
     {MODKEY, XK_Right, focusdir, {.i = 1}},
     {MODKEY, XK_Up, focusdir, {.i = 2}},

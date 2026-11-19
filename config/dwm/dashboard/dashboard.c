@@ -25,6 +25,7 @@ static bool dashboard_worker_stopping(void);
 #define DASHBOARD_STOPPING() dashboard_worker_stopping()
 #include "../dashboard_backend.h"
 #include "desktop_controls.h"
+#include "persian_font.h"
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -62,7 +63,7 @@ static void *worker(void *unused) {
         if (has_request) {
             int rc;
             message[0] = 0; dashboard_action_error[0] = 0;
-            if (request.type == ACT_DISPLAY_APPLY)
+            if (request.type >= ACT_DISPLAY_APPLY)
                 rc = desktop_execute(&request, message, sizeof message);
             else rc = execute(&request);
             if (rc == 0 && !message[0]) copystr(message, sizeof message, "Done.");
@@ -111,21 +112,8 @@ static void open_settings(const char *program) {
     if (p > 0) { int status; while (waitpid(p, &status, 0) < 0 && errno == EINTR) ; }
 }
 
-static void load_monospace(cui_ctx *ui) {
-    char path[2048], *end;
-    char *cmd[] = {"fc-match", "-f", "%{file}\n", "monospace", NULL};
-    const char *override = getenv("DWM_DASHBOARD_FONT");
-    cui_font font = -1;
-    if (override && *override) font = cui_font_load_file(ui, override);
-    else if (run_command(cmd, NULL, path, sizeof path, 2000) == 0) {
-        if ((end = strchr(path, '\n'))) *end = '\0';
-        if (*path) font = cui_font_load_file(ui, path);
-    }
-    if (font < 0) font = CUI_FONT_MONO;
-    cui_font_set_role(ui, CUI_FONT_BODY, font);
-    cui_font_set_role(ui, CUI_FONT_MEDIUM, font);
-    cui_font_set_role(ui, CUI_FONT_DISPLAY, font);
-}
+/* Colours, font resolution and the Persian fallback, shared with the launcher. */
+#include "ui_fonts.h"
 
 #include "pages.h"
 
@@ -142,7 +130,7 @@ int main(void) {
                                          .min_width = 480, .min_height = 400, .theme = CUI_THEME_DARK });
     if (!app) { fprintf(stderr, "dwm-dashboard: could not open an X11 window\n"); return 1; }
     ui = cui_app_ui(app);
-    style(ui); load_monospace(ui);
+    style(ui); ui_fonts_setup(ui);
     if (pthread_create(&backend.thread, NULL, worker, NULL) != 0) {
         fprintf(stderr, "dwm-dashboard: unable to start worker\n"); cui_app_destroy(app); return 1;
     }

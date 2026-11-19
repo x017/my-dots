@@ -7,6 +7,7 @@
 
 #include "drw.h"
 #include "util.h"
+#include "persian_text.h"
 
 #define UTF_INVALID 0xFFFD
 
@@ -244,8 +245,8 @@ drw_rect(Drw *drw, int x, int y, unsigned int w, unsigned int h, int filled, int
 		XDrawRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w - 1, h - 1);
 }
 
-int
-drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lpad, const char *text, int invert)
+static int
+drw_text_raw(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lpad, const char *text, int invert)
 {
 	int ty, ellipsis_x = 0;
 	unsigned int tmpw, ew, ellipsis_w = 0, ellipsis_len, hash, h0, h1;
@@ -403,6 +404,15 @@ no_match:
 		XftDrawDestroy(d);
 
 	return x + (render ? w : 0);
+}
+
+int
+drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lpad, const char *text, int invert)
+{
+    char *visual = text ? persian_visual_text(text) : NULL;
+    int result = drw_text_raw(drw, x, y, w, h, lpad, visual ? visual : text, invert);
+    free(visual);
+    return result;
 }
 
 void

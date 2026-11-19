@@ -54,6 +54,7 @@
 
 #include "drw.h"
 #include "util.h"
+#include "lock_screen.h"
 
 /* macros */
 #define BUTTONMASK (ButtonPressMask | ButtonReleaseMask)
@@ -178,11 +179,15 @@ typedef struct {
 /* function declarations */
 static void alttab(const Arg *arg);
 static void wallpaperswitcher(const Arg *arg);
+static void screenshotmonitor(const Arg *arg);
+static void screenshotarea(const Arg *arg);
 static void togglekeyboardgroup(const Arg *arg);
+static void lockscreen(const Arg *arg);
 static void displaymodeswitcher(const Arg *arg);
 static void dashboardnative(const Arg *arg);
 #ifdef DWM_CUI
 static void dashboardcui(const Arg *arg);
+static void applauncher(const Arg *arg);
 #endif
 static void monitorswitcher(const Arg *arg);
 static void applyrules(Client *c);
@@ -399,6 +404,11 @@ switcherpreview(Drw *d, Window win, int x, int y, int w, int h)
   return ok && !switcher_xerror_seen;
 }
 
+/* Start the lock in a child after preparing XKB; never block dwm. */
+void lockscreen(const Arg *arg) {
+  lock_screen_start(dpy, (const char *const *)arg->v);
+}
+
 /* Switch the XKB group directly; unlike an external helper this does not
  * race an XKB grp:win_space_toggle binding for the same key. grabkeys()
  * lets XKB handle the shortcut when that option is already configured. */
@@ -425,6 +435,20 @@ dashboardcui(const Arg *arg)
     setsid();
     signal(SIGCHLD, SIG_DFL);
     _exit(dashboard_cui_main());
+  }
+}
+
+/* The command-palette application launcher, also a forked child. */
+extern int launcher_cui_main(void);
+static void
+applauncher(const Arg *arg)
+{
+  (void)arg;
+  if (fork() == 0) {
+    close(ConnectionNumber(dpy));
+    setsid();
+    signal(SIGCHLD, SIG_DFL);
+    _exit(launcher_cui_main());
   }
 }
 #endif
@@ -497,6 +521,8 @@ displaypick(const char *title, char **items, int count)
   drw_scm_free(d, normal, 3); drw_scm_free(d, selected, 3); drw_scm_free(d, head, 3); drw_free(d);
   return result;
 }
+
+#include "screenshot.h"
 
 /* The same three-column format used by the original refreshmenu script. */
 static int
@@ -1736,6 +1762,12 @@ void configurerequest(XEvent *e) {
         c->oldh = c->h;
         c->h = ev->height;
       }
+      /* Floating clients normally control their geometry. A fixed-size client
+       * must not be stretched by a later ConfigureRequest, however. */
+      if (c->isfixed && !c->isfullscreen) {
+        c->w = c->minw;
+        c->h = c->minh;
+      }
       if ((c->x + c->w) > m->mx + m->mw && c->isfloating)
         c->x = m->mx + (m->mw / 2 - WIDTH(c) / 2); /* center in x direction */
       if ((c->y + c->h) > m->my + m->mh && c->isfloating)
@@ -2061,28 +2093,7 @@ void grabbuttons(Client *c, int focused) {
 
 /* setxkbmap publishes five NUL-separated strings on the root window. If
  * XKB already owns Win+Space, leave the key ungrabbed so it cannot toggle
- * twice. No existing keyboard options or startup files are modified. */
-static int
-xkbwinspaceoption(const unsigned char *data, size_t length)
-{
-  size_t start = 0, end;
-  int field;
-  for (field = 0; field < 4; field++) {
-    while (start < length && data[start]) start++;
-    if (start == length) return 0;
-    start++;
-  }
-  while (start < length && data[start]) {
-    end = start;
-    while (end < length && data[end] && data[end] != ',') end++;
-    if (end - start == sizeof("grp:win_space_toggle") - 1 &&
-        !memcmp(data + start, "grp:win_space_toggle", end - start)) return 1;
-    if (end == length || !data[end]) break;
-    start = end + 1;
-  }
-  return 0;
-}
-
+ * twice. Other keyboard options and startup files are left unchanged. */
 static int
 xkbownswinspace(void)
 {
@@ -2093,7 +2104,7 @@ xkbownswinspace(void)
   if (XGetWindowProperty(dpy, root, xkbrules, 0, 4096, False, XA_STRING,
                          &actual, &format, &nitems, &remaining, &data) == Success &&
       actual == XA_STRING && format == 8 && data)
-    found = xkbwinspaceoption(data, nitems);
+    found = lock_xkb_option(data, nitems, "grp:win_space_toggle");
   if (data) XFree(data);
   return found;
 }
@@ -2173,6 +2184,21 @@ void killclient(const Arg *arg) {
   closeclient(selmon->sel);
 }
 
+/* Keep ICCCM fixed-size clients at their advertised client dimensions; an
+ * explicit fullscreen request always takes precedence until it is exited. */
+static void initialclientgeometry(Client *c) {
+  if (c->isfixed && c->isfullscreen)
+    c->oldstate = 1;
+  if (!c->isfullscreen) {
+    if (c->isfixed) {
+      c->w = c->oldw = c->minw;
+      c->h = c->oldh = c->minh;
+    }
+    c->x = c->mon->mx + (c->mon->mw - WIDTH(c)) / 2;
+    c->y = c->mon->my + (c->mon->mh - HEIGHT(c)) / 2;
+  }
+}
+
 void manage(Window w, XWindowAttributes *wa) {
   Client *c, *t = NULL;
   Window trans = None;
@@ -2202,7 +2228,9 @@ void manage(Window w, XWindowAttributes *wa) {
     c->y = c->mon->wy + c->mon->wh - HEIGHT(c);
   c->x = MAX(c->x, c->mon->wx);
   c->y = MAX(c->y, c->mon->wy);
-  c->bw = borderpx;
+  /* The shaped CUI launcher is its own panel; do not draw a dwm border
+   * around its silhouette. Other clients retain the configured border. */
+  c->bw = !strcmp(c->name, "Dwm Launcher") ? 0 : borderpx;
 
   wc.border_width = c->bw;
   XConfigureWindow(dpy, w, CWBorderWidth, &wc);
@@ -2211,8 +2239,7 @@ void manage(Window w, XWindowAttributes *wa) {
   updatewindowtype(c);
   updatesizehints(c);
   updatewmhints(c);
-  c->x = c->mon->mx + (c->mon->mw - WIDTH(c)) / 2;
-  c->y = c->mon->my + (c->mon->mh - HEIGHT(c)) / 2;
+  initialclientgeometry(c);
   XSelectInput(dpy, w,
                EnterWindowMask | FocusChangeMask | PropertyChangeMask |
                    StructureNotifyMask);
@@ -2365,8 +2392,8 @@ void propertynotify(XEvent *e) {
     grabkeys();
     return;
   }
-  if (ev->state == PropertyDelete)
-    return; /* ignore */
+  if (ev->state == PropertyDelete && ev->atom != XA_WM_NORMAL_HINTS)
+    return; /* normal-hint removal must also invalidate the cached constraints */
   else if ((c = wintoclient(ev->window))) {
     switch (ev->atom) {
     default:
@@ -2376,9 +2403,25 @@ void propertynotify(XEvent *e) {
           (c->isfloating = (wintoclient(trans)) != NULL))
         arrange(c->mon);
       break;
-    case XA_WM_NORMAL_HINTS:
-      c->hintsvalid = 0;
+    case XA_WM_NORMAL_HINTS: {
+      int wasfloating = c->isfloating;
+      updatesizehints(c);
+      if (c->isfixed && c->isfullscreen) {
+        /* Keep explicit fullscreen, but restore the fixed client as floating. */
+        c->oldstate = 1;
+      } else if (c->isfixed) {
+        int x = c->x, y = c->y;
+        c->isfloating = 1;
+        if (!wasfloating) {
+          x = c->mon->wx + (c->mon->ww - c->minw - 2 * c->bw) / 2;
+          y = c->mon->wy + (c->mon->wh - c->minh - 2 * c->bw) / 2;
+        }
+        resize(c, x, y, c->minw, c->minh, 0);
+        if (!wasfloating)
+          arrange(c->mon);
+      }
       break;
+    }
     case XA_WM_HINTS:
       updatewmhints(c);
       publishbar();
@@ -2792,8 +2835,8 @@ void setfullscreen(Client *c, int fullscreen) {
     c->bw = c->oldbw;
     c->x = c->oldx;
     c->y = c->oldy;
-    c->w = c->oldw;
-    c->h = c->oldh;
+    c->w = c->isfixed ? c->minw : c->oldw;
+    c->h = c->isfixed ? c->minh : c->oldh;
     resizeclient(c, c->x, c->y, c->w, c->h);
     arrange(c->mon);
   }
@@ -3411,12 +3454,16 @@ static void startstandalonebar(void) {
 }
 
 int main(int argc, char *argv[]) {
+  if (argc == 2 && !strcmp("--lock", argv[1])) {
+    lock_screen_exec(NULL, lockcmd);
+    return EXIT_FAILURE; /* exec only returns on failure */
+  }
   if (argc == 2 && !strcmp("--apply-display-settings", argv[1]))
     return restoredisplaymodes();
   if (argc == 2 && !strcmp("-v", argv[1]))
     die("dwm-" VERSION);
   else if (argc != 1)
-    die("usage: dwm [-v | --apply-display-settings]");
+    die("usage: dwm [-v | --apply-display-settings | --lock]");
   if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
     fputs("warning: no locale support\n", stderr);
   if (!(dpy = XOpenDisplay(NULL)))
