@@ -396,14 +396,30 @@ static void compute_layout(const mon_t *m, lay_t *L, double cs, double ds)
         L->sx = 0; L->sy = L->iy + L->ih + 28;
     }
     if (layout_id >= L_SPLIT && mh < 360) {
-        /* Compact fallback keeps the clock, date and field distinct on short
-         * monitors rather than clipping either side of a split layout. */
+        /* Compact layouts still need distinct compositions. Keep all text and
+         * status feedback on screen rather than collapsing to one template. */
         memset(L, 0, sizeof *L);
-        L->cx = 0; L->cy = -mh * 0.28; L->dy = ds + 10;
-        L->lx = 0; L->ly = L->cy + L->dy + fs + 12;
-        L->iw = fmax(80, fmin(300, mw - 48)); L->ih = 44;
-        L->ix = -L->iw / 2; L->iy = L->ly + 14;
-        L->sx = 0; L->sy = L->iy + L->ih + 20;
+        L->dy = ds + 10; L->ih = 44;
+        if (layout_id == L_SPLIT) {
+            L->align = 1; L->cx = -mw / 2 + 24; L->cy = -mh * 0.26;
+            L->iw = fmax(80, fmin(240, mw - 48));
+            L->ix = mw / 2 - 24 - L->iw;
+            L->ly = L->cy + L->dy + fs + 12; L->lx = L->ix;
+            L->iy = L->ly + 14;
+        } else if (layout_id == L_ZEN) {
+            L->cx = 0; L->cy = -mh * 0.28;
+            L->lx = 0; L->ly = L->cy + L->dy + fs + 12;
+            L->iw = fmax(80, fmin(260, mw - 48));
+            L->ix = -L->iw / 2; L->iy = L->ly + 14;
+        } else {
+            L->align = 1; L->cx = -mw / 2 + 24;
+            L->cy = -mh / 2 + 22 + cs * 0.85;
+            L->iw = fmax(80, fmin(260, mw - 48));
+            L->ix = mw / 2 - 24 - L->iw;
+            L->iy = mh / 2 - 26 - L->ih;
+            L->lx = L->ix; L->ly = L->iy - 18;
+        }
+        L->sx = L->ix + L->iw / 2; L->sy = L->iy + L->ih + 16;
     }
 }
 
@@ -423,15 +439,27 @@ static void draw_input(cairo_t *cr, const lay_t *L, const frame_t *f, double a)
     cairo_save(cr);
     cairo_translate(cr, f->shake, (1 - f->e_input) * 14);
 
-    /* field + outline (neutral / error / success) */
-    rrect(cr, ix, iy, iw, ih, rad);
-    rgba(cr, cfg.input_color, a);
-    cairo_fill_preserve(cr);
-    cairo_set_line_width(cr, 1.5);
-    if (f->unlock > 0 && unlock_ok) rgba(cr, cfg.success_color, a * f->unlock);
-    else if (f->shake_amt > 0.02)   rgba(cr, cfg.caps_lock_color, a * f->shake_amt);
-    else { cairo_set_line_width(cr, 1); rgba(cr, cfg.input_text_color, a * 0.10); }
-    cairo_stroke(cr);
+    /* Each new layout has its own field treatment. Error/success feedback
+     * stays visible without introducing a decorative outer box. */
+    if (layout_id == L_ZEN) {
+        cairo_move_to(cr, ix, iy + ih - 1); cairo_line_to(cr, ix + iw, iy + ih - 1);
+        cairo_set_line_width(cr, 2);
+        if (f->unlock > 0 && unlock_ok) rgba(cr, cfg.success_color, a * f->unlock);
+        else if (f->shake_amt > 0.02) rgba(cr, cfg.caps_lock_color, a * f->shake_amt);
+        else rgba(cr, cfg.accent_color, a * 0.7);
+        cairo_stroke(cr);
+    } else {
+        if (layout_id == L_SPLIT) rad = 5;
+        rrect(cr, ix, iy, iw, ih, rad);
+        rgba(cr, cfg.input_color, a);
+        cairo_fill_preserve(cr);
+        cairo_set_line_width(cr, 1.5);
+        if (f->unlock > 0 && unlock_ok) rgba(cr, cfg.success_color, a * f->unlock);
+        else if (f->shake_amt > 0.02) rgba(cr, cfg.caps_lock_color, a * f->shake_amt);
+        else if (layout_id == L_SPLIT) rgba(cr, cfg.accent_color, a * 0.32);
+        else { cairo_set_line_width(cr, 1); rgba(cr, cfg.input_text_color, a * 0.10); }
+        cairo_stroke(cr);
+    }
 
     /* content area: [avatar] ...dots... [submit arrow] */
     double x0 = ix + (L->avatar ? ih : 16), x1 = ix + iw - ih, mid = (x0 + x1) / 2;

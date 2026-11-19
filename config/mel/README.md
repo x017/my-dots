@@ -33,10 +33,12 @@ calling `mel` directly for external idle-lock triggers (see `../dwm/README`).
 
 Layouts are `minimal`, `card`, `left`, `pill`, `avatar`, `band`, `terminal`,
 `corner`, `ring`, `reactor`, and the new **split**, **zen** and **horizon**.
-Split puts the clock and sign-in area on opposite sides and stacks them on
-small screens; zen is centered with plenty of space; horizon puts the clock in
-the top corner and sign-in near the bottom. They all retain mel's standard
-password, failure, caps-lock and unlock feedback.
+Split puts the clock and sign-in area on opposite sides with a squared input,
+stacking them on small screens. Zen uses a centered composition and an
+underlined input with no surrounding field. Horizon puts the clock in the top
+corner and the rounded sign-in field near the bottom. Their compact versions
+keep those distinct arrangements; all retain mel's standard password, failure,
+caps-lock and unlock feedback.
 
 The bundled colour themes are `nord`, `catppuccin`, `tokyo-night`, and the new
 `my-dots` (matching the bar), `rose-pine`, `gruvbox` and `everforest`. Layouts

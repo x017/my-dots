@@ -30,6 +30,24 @@ static void verify_size(const char *path, int w, int h) {
     assert(cairo_image_surface_get_width(img) == w && cairo_image_surface_get_height(img) == h);
     cairo_surface_destroy(img);
 }
+/* Check the actual field renderer in idle, error and successful-unlock
+ * states: each distinct style must keep visible security feedback. */
+static unsigned long input_hash(int id, int state) {
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 320, 100);
+    cairo_t *cr = cairo_create(surface);
+    lay_t l = { .ix = 10, .iy = 20, .iw = 300, .ih = 48 };
+    frame_t f = { .t = now_ms(), .e_input = 1, .ghost = -1 };
+    unsigned long h = 2166136261u; unsigned char *data; int n;
+    layout_id = id; pwcount = 0; authenticating = 0; unlock_ok = state == 2;
+    if (state == 1) f.shake_amt = 1;
+    if (state == 2) f.unlock = 1;
+    draw_input(cr, &l, &f, 1); cairo_destroy(cr);
+    cairo_surface_flush(surface); data = cairo_image_surface_get_data(surface);
+    n = cairo_image_surface_get_stride(surface) * cairo_image_surface_get_height(surface);
+    for (int i = 0; i < n; i++) h = (h ^ data[i]) * 16777619u;
+    cairo_surface_destroy(surface); unlock_ok = 0; return h;
+}
+
 static void layout_bounds(int id, int w, int h) {
     mon_t m = {0}; lay_t l;
     double cs, ds;
@@ -46,7 +64,8 @@ static void layout_bounds(int id, int w, int h) {
 int main(void) {
     const char *layouts[] = {"split", "zen", "horizon"};
     const char *themes[] = {"my-dots", "rose-pine", "gruvbox", "everforest", "nord", "catppuccin", "tokyo-night"};
-    unsigned long hashes[3]; char path[256], theme[256]; size_t i;
+    unsigned long hashes[3], small_hashes[3]; char path[256], theme[256]; size_t i;
+    lay_t compact[3];
     char home[] = "/tmp/mel-test-XXXXXX", dir[256], custom[256];
     FILE *fp;
     assert(mkdtemp(home));
@@ -62,14 +81,25 @@ int main(void) {
         int id = layout_by_name(layouts[i]);
         assert(id >= L_SPLIT && id < L_COUNT);
         layout_bounds(id, 320, 240); layout_bounds(id, 800, 600); layout_bounds(id, 1920, 1080);
+        { mon_t m = { .w = 320, .h = 240 }; layout_id = id; ui_scale = 1;
+          compute_layout(&m, &compact[i], 31.2, 12); }
         layout_id = id;
         snprintf(path, sizeof path, "%s/%s.png", home, layouts[i]);
         assert(preview_png(path, 1280, 720) == 0); verify_size(path, 1280, 720);
         hashes[i] = hash_file(path); unlink(path);
         snprintf(path, sizeof path, "%s/%s-small.png", home, layouts[i]);
-        assert(preview_png(path, 320, 240) == 0); verify_size(path, 320, 240); unlink(path);
+        assert(preview_png(path, 320, 240) == 0); verify_size(path, 320, 240);
+        small_hashes[i] = hash_file(path); unlink(path);
     }
     assert(hashes[0] != hashes[1] && hashes[1] != hashes[2] && hashes[0] != hashes[2]);
+    assert(small_hashes[0] != small_hashes[1] && small_hashes[1] != small_hashes[2] && small_hashes[0] != small_hashes[2]);
+    /* A short display must not silently collapse all layouts to one template. */
+    assert(compact[0].align == 1 && compact[1].align == 0 && compact[2].align == 1);
+    assert(compact[0].iy != compact[1].iy && compact[0].iy != compact[2].iy && compact[1].iy != compact[2].iy);
+    for (int id = L_SPLIT; id <= L_HORIZON; id++) {
+        unsigned long idle = input_hash(id, 0), failure = input_hash(id, 1), success = input_hash(id, 2);
+        assert(idle != failure && idle != success && failure != success);
+    }
     assert(layout_by_name("not-a-layout") == -1);
     assert(preview_size("320x240", &(int){0}, &(int){0}));
     assert(!preview_size("319x240", &(int){0}, &(int){0}));
