@@ -1,0 +1,45 @@
+.TH MEL 1 "2026" "mel 0.4.0" "User Commands"
+.SH NAME
+mel \- a beautiful, customizable X11 screen locker
+.SH SYNOPSIS
+.B mel
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+mel covers every monitor with a fullscreen window, grabs keyboard and pointer, and unlocks after a successful PAM authentication. For dwm, use \fBxss-lock -- dwm --lock\fR to prepare the keyboard layout.
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIfile\fR
+Use a custom config file.
+.TP
+.BR \-l ", " \-\-layout " " \fIname\fR
+minimal, card, left, pill, avatar, band, terminal, corner, ring, reactor, split, zen or horizon.
+.TP
+.BR \-t ", " \-\-theme " " \fIname\fR
+Select a colour theme; user config colours override the theme.
+.TP
+.B \-\-list-layouts
+List available layouts and exit.
+.TP
+.B \-\-preview \fIfile.png\fR
+Write a PNG without locking or authenticating. Blur and dim use a gradient.
+.TP
+.B \-\-preview-size \fIWIDTHxHEIGHT\fR
+Preview size, from 320x240 to 4096x2160 (default 1280x720).
+.TP
+.BR \-i ", " \-\-image " " \fIpath\fR
+Background image (PNG).
+.TP
+.BR \-b ", " \-\-background " " \fImode\fR
+blur, dim, image, solid or gradient.
+.TP
+.B \-\-blur \fIstrength\fR
+Blur strength.
+.TP
+.B \-\-no\-fade
+Disable animations.
+.SH FILES
+.I $XDG_CONFIG_HOME/mel/config, ~/.config/mel/config, /etc/mel.conf
+.br
+Themes: \fI$XDG_CONFIG_HOME/mel/themes/NAME\fR, \fI~/.config/mel/themes/NAME\fR, \fIPREFIX/share/mel/themes/NAME\fR
+.SH SEE ALSO
+xss-lock(1), pam(8)

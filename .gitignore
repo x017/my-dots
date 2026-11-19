@@ -8,3 +8,7 @@ build/
 config/dwm/dwm
 config/dwm/dwm-*.tar.gz
 config/cui-bar/cui-bar
+
+# mel build output
+config/mel/mel
+config/mel/tests/preview_test
